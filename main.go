@@ -129,7 +129,7 @@ func runDefault(args []string) error {
 	var (
 		dryRun    = fs.Bool("dry-run", false, "never change anything; show what would be done")
 		permanent = fs.Bool("permanent", false, "delete directories instead of moving them to the Trash")
-		jsonOut   = fs.Bool("json", false, "print the scan as JSON and exit (same as `nodekill scan --json`)")
+		jsonOut   = fs.Bool("json", false, "print the scan as JSON and exit (same as: nodekill scan --json)")
 		list      = fs.Bool("list", false, "print the scan as a table and exit (default when not a terminal)")
 		yes       = fs.Bool("yes", false, "non-interactive: clean every safe project artifact (never caches, global packages or Node versions)")
 		olderThan = fs.String("older-than", "", "only projects idle for at least this long, e.g. 30d, 6w, 3mo, 1y")

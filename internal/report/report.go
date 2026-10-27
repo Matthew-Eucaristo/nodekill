@@ -71,9 +71,12 @@ func CategoryTitle(c scan.Category) string {
 func Text(w io.Writer, res *scan.Result) {
 	home, _ := os.UserHomeDir()
 	now := time.Now()
-	var total, safe scan.Item
+	var total, free, safe scan.Item
 	for _, it := range res.Items {
 		total.Size = total.Size.Add(it.Size)
+		if it.Safety.Level.Allowed() {
+			free.Size = free.Size.Add(it.Size)
+		}
 		if it.Safety.Level == scan.Safe {
 			safe.Size = safe.Size.Add(it.Size)
 		}
@@ -83,7 +86,7 @@ func Text(w io.Writer, res *scan.Result) {
 		roots = append(roots, format.Tilde(r, home))
 	}
 	fmt.Fprintf(w, "nodekill: %d item(s) in %d project(s), %s on disk, %s freeable; %s safe to clean  (roots: %s)\n",
-		len(res.Items), len(res.Projects), format.Bytes(total.Size.Allocated), format.Bytes(total.Size.Exclusive()),
+		len(res.Items), len(res.Projects), format.Bytes(total.Size.Allocated), format.Bytes(free.Size.Exclusive()),
 		format.Bytes(safe.Size.Exclusive()), strings.Join(roots, ", "))
 	for _, warn := range res.Warnings {
 		fmt.Fprintln(w, "warning:", warn)

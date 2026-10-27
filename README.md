@@ -31,7 +31,7 @@ In the TUI, `space` selects, `s` selects the safe items in projects and `a` ever
 
 ```
 $ nodekill --list
-nodekill: 27 item(s) in 5 project(s), 2.7 GB on disk, 2.3 GB freeable; 1.1 GB safe to clean  (roots: ~/dev)
+nodekill: 27 item(s) in 5 project(s), 2.7 GB on disk, 2.0 GB freeable; 1.4 GB safe to clean  (roots: ~/dev)
 
 ~/dev/storefront  npm · Next.js · active 3mo ago  429.9 MB
   220.2 MB    safe  node_modules    art-abb796feca8c
@@ -42,8 +42,9 @@ nodekill: 27 item(s) in 5 project(s), 2.7 GB on disk, 2.3 GB freeable; 1.1 GB sa
   4.2 MB                  review  dist          deployable recent  art-602cb3e21379
 
 Caches and stores  852.5 MB
-  272.6 MB             safe    npm cache                          via `npm cache clean --force`        glb-8b26737c8a2b
-  157.3 MB             safe    Yarn 1 cache                       via `yarn cache clean`               glb-5c41ddcb5249
+  272.6 MB             safe    npm cache                          via `npm cache clean --force`  glb-8b26737c8a2b
+  178.3 MB  frees 0 B  safe    pnpm store                         via `pnpm store prune`         glb-3bc1271be3b4
+  157.3 MB             safe    Yarn 1 cache                       via `yarn cache clean`         glb-5c41ddcb5249
 …
 Node versions  125.8 MB
   41.9 MB    protected  Node v22.11.0 (nvm)  current via `nvm uninstall v22.11.0`         glb-52981247f837
@@ -121,7 +122,7 @@ nodekill refuses anything it cannot verify. Every item gets a level and the evid
   - it is the Node you are running, a manager's default, or `npm`/`corepack` themselves.
 - **live**: a dev server, build, test runner or the package manager is working in it right now.
 
-Right before acting, nodekill reads the item again and refuses it if anything safety-relevant changed since the scan. It also re-checks that the path is a real directory at its catalog position; symlinks are never followed or removed through. Commands run with a fixed argument list, never through a shell. `--dry-run`, `--list`, `--json` and `scan` never remove anything. To find caches, nodekill asks your tools read-only questions such as `npm config get cache` and `pnpm store path`. It turns off their prompts, update checks and downloads while it does. A tool may still touch its own folders when asked, for example pnpm updating its home folder's timestamp.
+Right before acting, nodekill reads the item again and refuses it if anything safety-relevant changed since the scan. It also re-checks that the path is a real directory at its catalog position; symlinks are never followed or removed through. Commands run with a fixed argument list, never through a shell. The one exception is nvm, which is a shell function: nodekill sources its own `nvm.sh` and passes the version as an argument. `--dry-run`, `--list`, `--json` and `scan` never remove anything. To find caches, nodekill asks your tools read-only questions such as `npm config get cache` and `pnpm store path`. It turns off their prompts, update checks and downloads while it does. A tool may still touch its own folders when asked, for example pnpm updating its home folder's timestamp.
 
 The Trash is the default. `--permanent` deletes folders instead and turns the header red. Official commands delete by their tool's own design, so the confirmation screen lists them apart.
 

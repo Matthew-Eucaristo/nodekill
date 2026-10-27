@@ -2,7 +2,7 @@
 # Builds from the tagged source tarball. Bump `url` and `sha256` per release;
 # see RELEASING.md.
 class Nodekill < Formula
-  desc "Reclaim disk space from node_modules, JS build caches, npm/pnpm/yarn/bun stores and old Node versions"
+  desc "Reclaim disk space from node_modules, JS caches and old Node versions"
   homepage "https://github.com/Matthew-Eucaristo/nodekill"
   url "https://github.com/Matthew-Eucaristo/nodekill/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_SHA256_OF_THE_TAG_TARBALL"

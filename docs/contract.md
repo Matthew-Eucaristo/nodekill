@@ -105,6 +105,7 @@ Read-only. Roots default to `~/dev`, else the current directory. Unless `--no-gl
 ```
 
 - `status`: `done`, `dry_run`, `refused` (rules said no, or the item is stale or gone; nothing changed; `reasons` and `error` say why), `failed` (an error after the checks passed).
+- `estimated_bytes` (and `trashed_bytes`, `command_bytes`, `deleted_bytes`) is what removing the item frees according to the scan: its own blocks, without blocks it shares with a store clone or a hard link.
 - `freed_bytes_measured` is the measured change in free space (`-1` unknown). After a move to the trash it stays near zero until the trash is emptied; that is reported, not hidden.
 
 `nodekill --yes [--older-than D] [--json]` prints the same result document for its headless run.

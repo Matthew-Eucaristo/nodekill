@@ -318,7 +318,7 @@ type ApplySummary struct {
 	Trashed  int64 `json:"trashed_bytes"`   // moved to the trash: freed when it is emptied
 	ByTool   int64 `json:"command_bytes"`   // removed by official commands
 	Deleted  int64 `json:"deleted_bytes"`   // deleted with --permanent
-	Estimate int64 `json:"estimated_bytes"` // all of the above, from the scan
+	Estimate int64 `json:"estimated_bytes"` // all of the above: what removal frees by the scan (shared blocks excluded)
 	Freed    int64 `json:"freed_bytes_measured"`
 }
 

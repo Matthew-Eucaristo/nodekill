@@ -93,7 +93,8 @@ func Act(it *scan.Item, fingerprint string, o Options) *Outcome {
 		}
 		return refuse(out, codes, strings.Join(details, "; "))
 	}
-	out.Estimate = fresh.Size.Allocated
+	// What removing it frees: shared blocks (store clones, hard links) stay.
+	out.Estimate = fresh.Size.Exclusive()
 	if err := Check(fresh); err != nil {
 		return refuse(out, nil, err.Error())
 	}
