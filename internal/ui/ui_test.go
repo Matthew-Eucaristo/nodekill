@@ -70,7 +70,7 @@ func TestRenderAndSelect(t *testing.T) {
 		t.Fatalf("s selected %d, want the 2 safe items", len(m.selected))
 	}
 	press(m, "enter")
-	if s := screen(m); !strings.Contains(s, "Dry run: nothing will change") || !strings.Contains(s, "Move to the Trash") {
+	if s := screen(m); !strings.Contains(s, "Dry run: nothing will change") || !strings.Contains(s, "Move to the "+clean.TrashName) {
 		t.Fatalf("confirm screen:\n%s", s)
 	}
 	press(m, "esc")
@@ -82,7 +82,7 @@ func TestRenderAndSelect(t *testing.T) {
 func TestGroupingFilterLegend(t *testing.T) {
 	m := model(t)
 	press(m, "tab")
-	if !strings.Contains(screen(m), "group: framework") || !strings.Contains(screen(m), "Next.js") {
+	if !strings.Contains(screen(m), "by framework") || !strings.Contains(screen(m), "Next.js") {
 		t.Error("framework grouping")
 	}
 	press(m, "tab")
@@ -96,5 +96,85 @@ func TestGroupingFilterLegend(t *testing.T) {
 	press(m, "esc", "?")
 	if !strings.Contains(screen(m), "Safety") {
 		t.Error("legend")
+	}
+}
+
+func TestFitsEveryWidth(t *testing.T) {
+	m := model(t)
+	m.res.Warnings = []string{"2 folder(s) could not be read (permission denied), e.g. ~/x; projects inside them are not listed"}
+	for _, w := range []int{60, 80, 100, 140} {
+		for _, h := range []int{16, 24, 40} {
+			m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+			for _, mode := range []string{"list", "legend", "confirm"} {
+				m.legend, m.confirm = mode == "legend", nil
+				if mode == "confirm" {
+					m.confirm = []string{m.res.Items[0].ID}
+				}
+				lines := strings.Split(screen(m), "\n")
+				if len(lines) > h {
+					t.Errorf("%dx%d %s: %d lines", w, h, mode, len(lines))
+				}
+				for _, l := range lines {
+					if ansi.StringWidth(l) > w {
+						t.Errorf("%dx%d %s: line wider than the terminal: %q", w, h, mode, l)
+					}
+				}
+			}
+			m.legend, m.confirm = false, nil
+			s := screen(m)
+			for _, want := range []string{"nodekill", "? legend", "q quit", "⚠"} {
+				if !strings.Contains(s, want) {
+					t.Errorf("%dx%d lacks %q:\n%s", w, h, want, s)
+				}
+			}
+		}
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	if s := screen(m); !strings.Contains(s, "node_modules") || !strings.Contains(s, "safe") {
+		t.Errorf("80 columns must still show the item and its level:\n%s", s)
+	}
+}
+
+func TestCursorStaysOnTopWhileMeasuring(t *testing.T) {
+	m := model(t)
+	rows := m.rows()
+	last := rows[len(rows)-1]
+	m.cursorKey = last.key()
+	m.Update(measuredMsg(scan.Measure(m.res.Items[0])))
+	if m.cursorKey != firstItem(m.rows()) {
+		t.Error("cursor should return to the first item until the user moves")
+	}
+	press(m, "j")
+	k := m.cursorKey
+	m.Update(measuredMsg(scan.Measure(m.res.Items[0])))
+	if m.cursorKey != k {
+		t.Error("cursor must stay where the user put it")
+	}
+}
+
+func TestNothingToCleanSaysSo(t *testing.T) {
+	m := model(t)
+	for _, it := range m.res.Items {
+		it.Safety = scan.Safety{Level: scan.Protected}
+	}
+	if s := screen(m); !strings.Contains(s, "0 B freeable") {
+		t.Errorf("protected items are not freeable:\n%s", s)
+	}
+	m.confirm = []string{m.res.Items[0].ID}
+	if s := screen(m); !strings.Contains(s, "Nothing here can be cleaned") || strings.Contains(s, "Proceed?") {
+		t.Errorf("confirm with nothing to run:\n%s", s)
+	}
+}
+
+func TestBulkSkipsEmptyItems(t *testing.T) {
+	m := model(t)
+	for _, it := range m.res.Items {
+		if it.Safety.Level == scan.Safe {
+			it.Size.Allocated = 0
+		}
+	}
+	press(m, "a")
+	if len(m.selected) != 0 {
+		t.Errorf("a selected %d empty items", len(m.selected))
 	}
 }

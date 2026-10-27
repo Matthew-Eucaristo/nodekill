@@ -17,14 +17,10 @@ func moveToTrash(path string) error {
 		script := `on run argv
 tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)
 end run`
-		cmd = exec.Command("osascript", "-e", script, path)
+		cmd = exec.Command("/usr/bin/osascript", "-e", script, path)
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("move to trash: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
-
-// stagingParent is where rescue folders are assembled before they move to
-// the Trash.
-func stagingParent() string { return os.TempDir() }

@@ -42,6 +42,9 @@ func capture(t *testing.T, stdin string, args ...string) (string, int) {
 func setup(t *testing.T) (root, app string) {
 	home := testfix.Real(t, t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -74,7 +77,7 @@ func TestScanJSONIsHomeRelative(t *testing.T) {
 		t.Error("JSON contains the home path")
 	}
 	for _, it := range doc.Items {
-		if !strings.HasPrefix(it.Path, "~/dev/shop/") || it.Safety.Level != "safe" || it.Action != "trash" || it.Project.PackageManager != "npm" {
+		if !strings.HasPrefix(it.Path, filepath.Join("~", "dev", "shop")+string(filepath.Separator)) || it.Safety.Level != "safe" || it.Action != "trash" || it.Project.PackageManager != "npm" {
 			t.Errorf("item %+v", it)
 		}
 	}

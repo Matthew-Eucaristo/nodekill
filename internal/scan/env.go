@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"runtime"
 	"time"
+
+	"github.com/Matthew-Eucaristo/nodekill/internal/procs"
 )
 
 // Env is how a scan sees the machine. Tests replace it.
@@ -18,6 +20,10 @@ type Env struct {
 	// "list" query) and returns its stdout.
 	Query func(dir, name string, args ...string) ([]byte, error)
 }
+
+// Snapshot reads the running processes. Tests on systems that cannot see
+// process working directories (Windows) replace it.
+var Snapshot = procs.Snapshot
 
 // DefaultEnv is the real machine.
 func DefaultEnv() Env {
@@ -36,9 +42,17 @@ func query(dir, name string, args ...string) ([]byte, error) {
 	return cmd.Output()
 }
 
-// QuietEnv is added to every tool nodekill runs.
+// QuietEnv is added to every tool nodekill runs, for queries and cleanups
+// alike: no prompts, colour, telemetry, update checks or downloads. Corepack
+// shims fail instead of fetching a package manager, pnpm does not switch to
+// a version pinned in a packageManager field (pmOnFail; managePackageManager-
+// Versions before pnpm 11), and `brew uninstall` removes only the formula
+// named, not dependencies it would otherwise autoremove.
 var QuietEnv = []string{
-	"CI=1", "NO_COLOR=1", "FORCE_COLOR=0", "NO_UPDATE_NOTIFIER=1", "npm_config_update_notifier=false",
-	"COREPACK_ENABLE_DOWNLOAD_PROMPT=0", "COREPACK_ENABLE_AUTO_PIN=0", "YARN_ENABLE_TELEMETRY=0",
-	"NEXT_TELEMETRY_DISABLED=1", "DO_NOT_TRACK=1", "PNPM_DISABLE_SELF_UPDATE_CHECK=true",
+	"CI=1", "NO_COLOR=1", "FORCE_COLOR=0", "NO_UPDATE_NOTIFIER=1", "DO_NOT_TRACK=1",
+	"npm_config_update_notifier=false",
+	"pnpm_config_update_notifier=false", "pnpm_config_pm_on_fail=ignore", "npm_config_manage_package_manager_versions=false",
+	"COREPACK_ENABLE_DOWNLOAD_PROMPT=0", "COREPACK_ENABLE_AUTO_PIN=0", "COREPACK_ENABLE_NETWORK=0", "COREPACK_DEFAULT_TO_LATEST=0",
+	"YARN_ENABLE_TELEMETRY=0", "NEXT_TELEMETRY_DISABLED=1",
+	"HOMEBREW_NO_AUTOREMOVE=1", "HOMEBREW_NO_AUTO_UPDATE=1", "HOMEBREW_NO_ANALYTICS=1", "HOMEBREW_NO_ENV_HINTS=1",
 }

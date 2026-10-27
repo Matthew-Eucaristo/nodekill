@@ -16,7 +16,7 @@ import (
 func nodeVersions(t *tools) ([]*Item, []string) {
 	cur := currentNode(t)
 	var items []*Item
-	for _, f := range []func(*tools, string) []*Item{nvmVersions, fnmVersions, miseVersions, nVersions, asdfVersions, nodenvVersions, voltaVersions, nvmWindowsVersions, brewNodes} {
+	for _, f := range []func(*tools, string) []*Item{nvmVersions, fnmVersions, miseVersions, nVersions, asdfVersions, nodenvVersions, voltaVersions, nvmWindowsVersions, brewNodes, nvsVersions, protoVersions, nvmFishVersions} {
 		items = append(items, f(t, cur)...)
 	}
 	return items, nil
@@ -102,20 +102,37 @@ func nvmVersions(t *tools, cur string) []*Item {
 			dir = filepath.Join(x, "nvm")
 		}
 	}
-	versions := subdirs(filepath.Join(dir, "versions", "node"))
-	if len(versions) == 0 {
-		return nil
-	}
+	// nvm.sh lives in NVM_DIR for a git install; Homebrew keeps it in its
+	// opt prefix and NVM_DIR holds only the versions.
 	bash, script := t.look("bash"), filepath.Join(dir, "nvm.sh")
+	for _, s := range []string{"/opt/homebrew/opt/nvm/nvm.sh", "/usr/local/opt/nvm/nvm.sh", "/home/linuxbrew/.linuxbrew/opt/nvm/nvm.sh"} {
+		if !fileExists(script) && fileExists(s) {
+			script = s
+		}
+	}
 	if !fileExists(script) {
 		bash = ""
 	}
-	def := nvmDefault(dir, versions)
+	nvm := func(sub ...string) []string {
+		return append([]string{"bash", "-c", `export NVM_DIR="$1"; . "$2" && shift 2 && nvm "$@"`, "nodekill", dir, script}, sub...)
+	}
 	var items []*Item
+	if cache := filepath.Join(dir, ".cache"); isDir(cache) {
+		it := newGlobal(CatCache, "nvm-cache", "nvm download cache", "nvm", cache, nvm("cache", "clear"), bash)
+		it.Shown = "nvm cache clear"
+		it.Explain = "Node.js archives and sources nvm downloaded while installing versions."
+		it.Regenerate = "downloaded again the next time nvm installs a version"
+		items = append(items, it)
+	}
+	versions := subdirs(filepath.Join(dir, "versions", "node"))
+	def := nvmDefault(dir, versions)
+	_, aliasErr := os.Stat(filepath.Join(dir, "alias", "default"))
 	for _, v := range versions {
-		cmd := []string{"bash", "-c", `export NVM_DIR="$2"; . "$NVM_DIR/nvm.sh" && nvm uninstall "$1"`, "nodekill", v, dir}
-		it := nodeRuntime("nvm", v, filepath.Join(dir, "versions", "node", v), cmd, bash, cur, v == def)
+		it := nodeRuntime("nvm", v, filepath.Join(dir, "versions", "node", v), nvm("uninstall", v), bash, cur, v == def)
 		it.Shown = "nvm uninstall " + v
+		if def == "" && aliasErr == nil {
+			it.Note = "nodekill could not resolve nvm's default alias; check `nvm alias default` before removing a version"
+		}
 		items = append(items, it)
 	}
 	return items
@@ -185,7 +202,7 @@ func fnmVersions(t *tools, cur string) []*Item {
 		case "darwin":
 			cands = append(cands, filepath.Join(t.env.Home, "Library", "Application Support", "fnm"))
 		case "windows":
-			cands = []string{filepath.Join(t.env.Getenv("APPDATA"), "fnm")}
+			cands = append([]string{filepath.Join(t.env.Getenv("APPDATA"), "fnm")}, cands...)
 		}
 		for _, c := range cands {
 			if isDir(filepath.Join(c, "node-versions")) {
@@ -214,7 +231,23 @@ func fnmVersions(t *tools, cur string) []*Item {
 func miseVersions(t *tools, cur string) []*Item {
 	exe := t.look("mise")
 	if exe == "" {
-		return nil
+		// Without mise, show what its data folder holds, protected.
+		data := t.env.Getenv("MISE_DATA_DIR")
+		if !filepath.IsAbs(data) {
+			data = filepath.Join(t.env.Home, ".local", "share", "mise")
+			if x := t.env.Getenv("XDG_DATA_HOME"); filepath.IsAbs(x) {
+				data = filepath.Join(x, "mise")
+			}
+			if t.env.GOOS == "windows" {
+				data = t.under("", "", "mise")
+			}
+		}
+		dir := filepath.Join(data, "installs", "node")
+		var items []*Item
+		for _, v := range subdirs(dir) {
+			items = append(items, nodeRuntime("mise", v, filepath.Join(dir, v), []string{"mise", "uninstall", "node@" + v}, "", cur, false))
+		}
+		return items
 	}
 	var list []struct {
 		Version     string `json:"version"`
@@ -242,14 +275,17 @@ func nVersions(t *tools, cur string) []*Item {
 	if t.env.GOOS == "windows" {
 		return nil
 	}
-	prefix := t.env.Getenv("N_CACHE_PREFIX")
-	if prefix == "" {
-		prefix = t.env.Getenv("N_PREFIX")
-	}
-	if prefix == "" {
+	// N_PREFIX is where n installs the active node; N_CACHE_PREFIX (default
+	// N_PREFIX) is where it keeps the downloaded versions.
+	prefix := t.env.Getenv("N_PREFIX")
+	if !filepath.IsAbs(prefix) {
 		prefix = "/usr/local"
 	}
-	dir := filepath.Join(prefix, "n", "versions", "node")
+	cache := t.env.Getenv("N_CACHE_PREFIX")
+	if !filepath.IsAbs(cache) {
+		cache = prefix
+	}
+	dir := filepath.Join(cache, "n", "versions", "node")
 	versions := subdirs(dir)
 	if len(versions) == 0 {
 		return nil
@@ -359,9 +395,73 @@ func nvmWindowsVersions(t *tools, cur string) []*Item {
 	if !filepath.IsAbs(root) {
 		return nil
 	}
+	// nvm-windows 2.x changed its CLI and output; until that is verified the
+	// versions are listed with the command for you to run (fail closed).
 	var items []*Item
 	for _, v := range subdirs(root) {
-		items = append(items, nodeRuntime("nvm-windows", v, filepath.Join(root, v), []string{"nvm", "uninstall", strings.TrimPrefix(v, "v")}, exe, cur, matches(current, v)))
+		items = append(items, reportOnly(nodeRuntime("nvm-windows", v, filepath.Join(root, v), nil, "", cur, matches(current, v)),
+			"nvm uninstall "+strings.TrimPrefix(v, "v"), "nodekill does not run nvm-windows yet (its 2.x output is not verified)"))
+	}
+	return items
+}
+
+// reportOnly marks a version nodekill lists but never removes, showing the
+// manager's own command for the user to run.
+func reportOnly(it *Item, cmd, why string) *Item {
+	if it.Safety.Level != Protected {
+		it.Safety = Safety{Level: Safe}
+		it.Safety.add(ReasonNoCommand, Protected, why)
+	}
+	it.Note = "remove it yourself with `" + cmd + "`"
+	return it
+}
+
+// ── nvs, proto, nvm.fish: listed with their command, never run, because
+// their non-interactive uninstall is not verified ──
+
+func nvsVersions(t *tools, cur string) []*Item {
+	home := t.env.Getenv("NVS_HOME")
+	if !filepath.IsAbs(home) {
+		home = filepath.Join(t.env.Home, ".nvs")
+		if t.env.GOOS == "windows" {
+			home = t.under("", "", "nvs")
+		}
+	}
+	var items []*Item
+	dir := filepath.Join(home, "node")
+	for _, v := range subdirs(dir) {
+		items = append(items, reportOnly(nodeRuntime("nvs", v, filepath.Join(dir, v), nil, "", cur, false), "nvs rm "+v, "nodekill does not run nvs (its uninstall may prompt)"))
+	}
+	return items
+}
+
+func protoVersions(t *tools, cur string) []*Item {
+	home := t.env.Getenv("PROTO_HOME")
+	if !filepath.IsAbs(home) {
+		home = filepath.Join(t.env.Home, ".proto")
+	}
+	var items []*Item
+	dir := filepath.Join(home, "tools", "node")
+	for _, v := range subdirs(dir) {
+		items = append(items, reportOnly(nodeRuntime("proto", v, filepath.Join(dir, v), nil, "", cur, false), "proto uninstall node "+v, "nodekill does not run proto (its uninstall may prompt)"))
+	}
+	return items
+}
+
+func nvmFishVersions(t *tools, cur string) []*Item {
+	if t.env.GOOS == "windows" {
+		return nil
+	}
+	data := t.env.Getenv("nvm_data")
+	if !filepath.IsAbs(data) {
+		data = filepath.Join(t.env.Home, ".local", "share", "nvm")
+		if x := t.env.Getenv("XDG_DATA_HOME"); filepath.IsAbs(x) {
+			data = filepath.Join(x, "nvm")
+		}
+	}
+	var items []*Item
+	for _, v := range subdirs(data) {
+		items = append(items, reportOnly(nodeRuntime("nvm.fish", v, filepath.Join(data, v), nil, "", cur, false), "nvm uninstall "+v, "nvm.fish runs only inside fish"))
 	}
 	return items
 }

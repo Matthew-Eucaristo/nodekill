@@ -262,7 +262,7 @@ func TestRefreshKeepsFingerprint(t *testing.T) {
 	testfix.Write(t, app, map[string]string{"package.json": pkg(`"turbo":"2"`), "turbo.json": "{}", "package-lock.json": "{}", ".gitignore": ignoreAll, "node_modules/a": "x", ".turbo/cache/x": "x"})
 	testfix.Repo(t, app, testfix.Old)
 	res := scanFix(t, root)
-	it := item(t, res, filepath.Join(app, ".turbo"))
+	it := item(t, res, filepath.Join(app, ".turbo", "cache"))
 	fresh, err := Refresh(it, Options{Env: DefaultEnv()})
 	if err != nil || fresh.Fingerprint != it.Fingerprint {
 		t.Fatalf("refresh: %v, %s vs %s", err, fresh.Fingerprint, it.Fingerprint)

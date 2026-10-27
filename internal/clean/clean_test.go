@@ -107,6 +107,12 @@ func TestRefusals(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(app, "node_modules")); err != nil {
 		t.Fatal("refused item was removed")
 	}
+	// Vanished since the scan (removed by hand or by another tool).
+	next := res.Find(filepath.Join(app, ".next"))
+	os.RemoveAll(next.Path)
+	if out := Act(next, next.Fingerprint, Options{Mode: Trash, Scan: opts}); out.Status == StatusDone || out.Error == "" {
+		t.Errorf("vanished item: %+v", out)
+	}
 }
 
 func TestReviewNeedsConsent(t *testing.T) {
@@ -173,5 +179,19 @@ func TestCheckRefusesBroadAndForeign(t *testing.T) {
 	}
 	if err := Check(&scan.Item{Command: []string{"npm", "cache", "clean"}}); err == nil {
 		t.Error("ran a relative executable")
+	}
+	// A folder-emptying command may only target a real folder well inside home.
+	exe, err := os.Executable()
+	if err != nil {
+		t.Skip(err)
+	}
+	npm := filepath.Join(t.TempDir(), "npm")
+	if err := os.Symlink(exe, npm); err != nil {
+		t.Skip(err)
+	}
+	for _, p := range []string{home, filepath.Join(home, ".npm"), t.TempDir(), "/"} {
+		if err := Check(&scan.Item{Kind: "npm-cache", Path: p, Command: []string{npm, "cache", "clean", "--force"}}); err == nil {
+			t.Errorf("would empty %s", p)
+		}
 	}
 }

@@ -60,16 +60,20 @@ func (m *Model) render() string {
 	var b strings.Builder
 	line := func(s string) { b.WriteString(ansi.Truncate(s, m.width, "…") + "\n") }
 	line(m.header())
-	line("")
+	line(m.warningLine())
 	rows := m.rows()
 	cur := m.cursor(rows)
 	body := m.bodyHeight()
+	full := m.legend || m.confirm != nil
+	if full {
+		body += 1 + detailRows // the detail pane is not shown
+	}
 	var lines []string
 	switch {
 	case m.legend:
 		lines = m.legendLines()
 	case m.confirm != nil:
-		lines = m.confirmLines(body + 1)
+		lines = m.confirmLines(body)
 	case len(rows) == 0 && m.filter != "":
 		lines = []string{"", "  " + faint.Render("Nothing matches “"+m.filter+"”. esc clears the filter.")}
 	case len(rows) == 0:
@@ -77,7 +81,9 @@ func (m *Model) render() string {
 			"  " + faint.Render("nodekill looks for package.json projects and their node_modules, build caches and outputs,"),
 			"  " + faint.Render("plus package-manager caches, global packages and Node versions.")}
 	default:
-		line(faint.Render(fmt.Sprintf("    %-*s  %9s  %9s  %-8s  %-11s %s", barWidth, "", "SIZE", "FREES", "IDLE", "SAFETY", "ITEM  (group: "+m.group.String()+" · sort: "+m.sort.String()+")")))
+		l := m.layout(rows)
+		line(faint.Render("    " + l.columns("", "SIZE", "FREES", fmt.Sprintf("%-5s", "IDLE"), fmt.Sprintf("%-11s", "SAFETY")) +
+			"ITEM  (by " + m.group.String() + ", " + m.sort.String() + ")"))
 		body--
 		if cur < m.offset {
 			m.offset = cur
@@ -93,7 +99,7 @@ func (m *Model) render() string {
 			}
 		}
 		for i := m.offset; i < min(len(rows), m.offset+body); i++ {
-			lines = append(lines, m.row(rows[i], i == cur, largest))
+			lines = append(lines, m.row(rows[i], i == cur, largest, l))
 		}
 	}
 	for i := range body {
@@ -103,16 +109,18 @@ func (m *Model) render() string {
 			line("")
 		}
 	}
-	line(faint.Render(strings.Repeat("─", max(0, m.width))))
-	var detail []string
-	if m.confirm == nil && !m.legend && len(rows) > 0 {
-		detail = m.detail(rows[cur])
-	}
-	for i := range detailRows {
-		if i < len(detail) {
-			line(detail[i])
-		} else {
-			line("")
+	if !full {
+		line(faint.Render(strings.Repeat("─", max(0, m.width))))
+		var detail []string
+		if len(rows) > 0 {
+			detail = m.detail(rows[cur])
+		}
+		for i := range detailRows {
+			if i < len(detail) {
+				line(detail[i])
+			} else {
+				line("")
+			}
 		}
 	}
 	line(m.summary())
@@ -128,6 +136,8 @@ func (m *Model) rootsText() string {
 	return strings.Join(rs, ", ")
 }
 
+// header is the mode, the totals and the roots, dropping the least
+// important parts when the terminal is narrow.
 func (m *Model) header() string {
 	mode := green.Render("● trash")
 	switch m.copts.Mode {
@@ -136,7 +146,11 @@ func (m *Model) header() string {
 	case clean.Permanent:
 		mode = banner.Render("PERMANENT DELETE")
 	}
-	parts := []string{brand.Render("nodekill") + " " + mode}
+	type part struct {
+		text string
+		drop int // dropped first when it does not fit: higher goes first
+	}
+	parts := []part{{brand.Render("nodekill") + " " + mode, 0}}
 	if m.res != nil {
 		var total, safe int64
 		var free int64
@@ -145,38 +159,112 @@ func (m *Model) header() string {
 				continue
 			}
 			total += it.Size.Allocated
-			free += it.Size.Exclusive()
+			if it.Safety.Level.Allowed() {
+				free += it.Size.Exclusive()
+			}
 			if it.Safety.Level == scan.Safe {
 				safe += it.Size.Exclusive()
 			}
 		}
-		parts = append(parts, bold.Render(format.Bytes(total))+" on disk",
-			cyan.Render(format.Bytes(free))+" freeable", green.Render(format.Bytes(safe))+" safe")
+		parts = append(parts, part{bold.Render(format.Bytes(total)) + " on disk", 3},
+			part{cyan.Render(format.Bytes(free)) + " freeable", 1}, part{green.Render(format.Bytes(safe)) + " safe", 1})
 		if m.freeDisk >= 0 {
-			parts = append(parts, format.Bytes(m.freeDisk)+" free")
+			parts = append(parts, part{format.Bytes(m.freeDisk) + " free", 4})
 		}
 		if m.measuring {
-			parts = append(parts, faint.Render("measuring…"))
+			parts = append(parts, part{faint.Render("measuring…"), 2})
 		}
 	}
 	if m.minAge > 0 {
-		parts = append(parts, faint.Render("idle ≥ "+format.Ago(time.Now().Add(-m.minAge), time.Now())))
+		parts = append(parts, part{faint.Render("idle ≥ " + format.Ago(time.Now().Add(-m.minAge), time.Now())), 2})
 	}
-	parts = append(parts, faint.Render(m.rootsText()))
-	return " " + strings.Join(parts, faint.Render("  ·  "))
+	parts = append(parts, part{faint.Render(m.rootsText()), 5})
+	for drop := 6; ; drop-- {
+		for _, sep := range []string{"  ·  ", " · "} {
+			var keep []string
+			for _, p := range parts {
+				if p.drop < drop {
+					keep = append(keep, p.text)
+				}
+			}
+			s := " " + strings.Join(keep, faint.Render(sep))
+			if lipgloss.Width(s) <= m.width || drop == 1 {
+				return s
+			}
+		}
+	}
 }
 
-func (m *Model) row(r row, isCursor bool, largest int64) string {
+// warningLine shows the first scan warning under the header.
+func (m *Model) warningLine() string {
+	if m.res == nil || len(m.res.Warnings) == 0 {
+		return ""
+	}
+	w := "  ⚠ " + m.res.Warnings[0]
+	if n := len(m.res.Warnings) - 1; n > 0 {
+		w += fmt.Sprintf("  (+%d more: ? shows all)", n)
+	}
+	return yellow.Render(w)
+}
+
+// layout is the column set that fits the terminal: the size bar narrows and
+// then goes, and FREES shows only when something is shared.
+type layout struct {
+	bar   int
+	frees bool
+}
+
+func (m *Model) layout(rows []row) layout {
+	l := layout{bar: barWidth}
+	switch {
+	case m.width < 70:
+		l.bar = 0
+	case m.width < 100:
+		l.bar = 6
+	case m.width < 120:
+		l.bar = 10
+	}
+	for _, r := range rows {
+		if r.it != nil && frees(r.it) != "" {
+			l.frees = true
+			break
+		}
+	}
+	return l
+}
+
+// columns joins the fixed columns of a row in layout order.
+func (l layout) columns(bar, size, free, idle, badge string) string {
+	var b strings.Builder
+	if l.bar > 0 {
+		b.WriteString(bar + strings.Repeat(" ", max(0, l.bar-lipgloss.Width(bar))) + "  ")
+	}
+	b.WriteString(fmt.Sprintf("%9s", size) + "  ")
+	if l.frees {
+		b.WriteString(cyan.Render(fmt.Sprintf("%9s", free)) + "  ")
+	}
+	b.WriteString(idle + "  " + badge + " ")
+	return b.String()
+}
+
+// frees is what removing the item frees now, shown when much of it is
+// shared with something outside it.
+func frees(it *scan.Item) string {
+	if it.Measured && it.Size.Shared > 0 && it.Size.Exclusive() < it.Size.Allocated*9/10 {
+		return format.Bytes(it.Size.Exclusive())
+	}
+	return ""
+}
+
+func (m *Model) row(r row, isCursor bool, largest int64, l layout) string {
 	cur := " "
 	if isCursor {
 		cur = cursorC
 	}
 	if r.it == nil {
 		var size int64
-		var n int
 		for _, x := range m.rows() {
 			if x.it != nil && x.group == r.group && m.status[x.it.ID] != done {
-				n++
 				size += max(x.it.Size.Allocated, 0)
 			}
 		}
@@ -184,16 +272,13 @@ func (m *Model) row(r row, isCursor bool, largest int64) string {
 			bold.Render(format.Bytes(size)), faint.Render(r.sub))
 	}
 	it := r.it
-	size, frees := format.Bytes(-1), ""
+	size := format.Bytes(-1)
 	if it.Measured {
 		size = format.Bytes(it.Size.Allocated)
-		if it.Size.Shared > 0 && it.Size.Exclusive() < it.Size.Allocated*9/10 {
-			frees = format.Bytes(it.Size.Exclusive())
-		}
 	}
-	line := fmt.Sprintf("%s  %9s  %s  %s  %s %s  %s",
-		m.bar(it, largest), size, cyan.Render(fmt.Sprintf("%9s", frees)), m.idle(it), badge(it.Safety.Level),
-		bold.Render(m.label(it)), m.flags(it))
+	cols := l.columns(m.bar(it, largest, l.bar), size, frees(it), m.idle(it), badge(it.Safety.Level))
+	room := m.width - 4 - lipgloss.Width(cols) - 1
+	line := cols + bold.Render(leftTrim(m.label(it), max(room, 8))) + "  " + m.flags(it)
 	switch m.status[it.ID] {
 	case done:
 		line = struck.Render(ansi.Strip(line))
@@ -205,6 +290,15 @@ func (m *Model) row(r row, isCursor bool, largest int64) string {
 	return fmt.Sprintf("%s %s %s", cur, m.check([]string{it.ID}, r), line)
 }
 
+// leftTrim keeps the end of s, where a path names the folder, when s is
+// wider than n.
+func leftTrim(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return "…" + string(r[len(r)-n+1:])
+	}
+	return s
+}
+
 func (m *Model) label(it *scan.Item) string {
 	if it.Project != nil && m.group != byProject {
 		return m.tilde(it.Path)
@@ -214,15 +308,18 @@ func (m *Model) label(it *scan.Item) string {
 
 // bar: length is the size relative to the largest item, in eighth blocks;
 // the part removal frees now is in the safety colour, shared bytes cyan.
-func (m *Model) bar(it *scan.Item, largest int64) string {
+func (m *Model) bar(it *scan.Item, largest int64, width int) string {
+	if width <= 0 {
+		return ""
+	}
 	t := it.Size.Allocated
 	if !it.Measured || t <= 0 {
-		return faint.Render(strings.Repeat("·", barWidth))
+		return faint.Render(strings.Repeat("·", width))
 	}
-	cells := []rune(fine(t, largest, barWidth))
+	cells := []rune(fine(t, largest, width))
 	own := int(int64(len(cells)) * it.Size.Exclusive() / t)
 	return levelStyle(it.Safety.Level).Render(string(cells[:own])) + cyan.Render(string(cells[own:])) +
-		faint.Render(strings.Repeat("·", barWidth-len(cells)))
+		faint.Render(strings.Repeat("·", width-len(cells)))
 }
 
 var eighths = []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
@@ -249,7 +346,7 @@ func levelStyle(l scan.Level) lipgloss.Style {
 }
 
 func badge(l scan.Level) string {
-	icon := map[scan.Level]string{scan.Safe: "●", scan.Review: "◐", scan.Protected: "⊘", scan.Live: "◉"}[l]
+	icon := map[scan.Level]string{scan.Safe: "●", scan.Review: "▲", scan.Protected: "■", scan.Live: "◉"}[l]
 	return levelStyle(l).Render(fmt.Sprintf("%s %-9s", icon, l))
 }
 
@@ -259,7 +356,7 @@ func (m *Model) idle(it *scan.Item) string {
 	if t.IsZero() {
 		ago = "—"
 	}
-	s := fmt.Sprintf("%-8s", ago)
+	s := fmt.Sprintf("%-5s", ago)
 	switch d := time.Since(t); {
 	case t.IsZero():
 		return faint.Render(s)
@@ -278,9 +375,6 @@ func (m *Model) flags(it *scan.Item) string {
 	}
 	if len(it.Command) > 0 {
 		parts = append(parts, magenta.Render("via "+report.CommandText(it)))
-	}
-	if it.Project != nil && it.Project.Worktree {
-		parts = append(parts, faint.Render("worktree"))
 	}
 	if e := m.errs[it.ID]; e != "" {
 		parts = append(parts, red.Render("✗ "+e))
@@ -366,7 +460,9 @@ func (m *Model) detail(r row) []string {
 	out = append(out, pad+how)
 	var why []string
 	for _, rs := range it.Safety.Reasons {
-		why = append(why, levelStyle(rs.Level).Render(rs.Detail))
+		if rs.Detail != it.Explain {
+			why = append(why, levelStyle(rs.Level).Render(rs.Detail))
+		}
 	}
 	if it.Note != "" {
 		why = append(why, faint.Render(it.Note))
@@ -396,7 +492,7 @@ func (m *Model) summary() string {
 			bytes += it.Size.Exclusive()
 		}
 	}
-	parts := []string{fmt.Sprintf("%d selected (%s)", sel, format.Bytes(bytes))}
+	parts := []string{fmt.Sprintf("%d selected · frees %s", sel, format.Bytes(bytes))}
 	var trashed, byTool, deleted, freed int64
 	var bad int
 	for _, o := range m.outcomes {
@@ -461,13 +557,39 @@ func (m *Model) help() string {
 	case m.legend:
 		return faint.Render("  any key closes")
 	case m.confirm != nil:
+		if run, _ := m.plan(); len(run) == 0 {
+			return faint.Render("  Nothing here can be cleaned. Any key closes")
+		}
 		return yellow.Render("  Proceed?") + "  " + bold.Render("y") + faint.Render(" yes   any other key cancels")
 	case m.filtering:
 		return faint.Render("  type to filter  enter keep  esc clear")
 	case m.quitWarn:
 		return yellow.Render("  Actions still running. Press ctrl+c again to quit anyway, or wait.")
 	}
-	return faint.Render("  ↑↓ move  space select  s safe in projects  a all safe  enter clean  / filter  tab group  o sort  R rescan  ? legend  q quit")
+	return m.keyHints()
+}
+
+// keyHints lists the keys, dropping the least needed ones when the
+// terminal is narrow; ? always stays and shows them all.
+func (m *Model) keyHints() string {
+	keys := []struct {
+		text string
+		drop int
+	}{
+		{"↑↓ move", 5}, {"space select", 0}, {"s safe in projects", 1}, {"a all safe", 3}, {"enter clean", 0},
+		{"/ filter", 4}, {"tab group", 2}, {"o sort", 4}, {"R rescan", 6}, {"? legend", 0}, {"q quit", 0},
+	}
+	for drop := 7; ; drop-- {
+		var keep []string
+		for _, k := range keys {
+			if k.drop < drop {
+				keep = append(keep, k.text)
+			}
+		}
+		if s := "  " + strings.Join(keep, "  "); lipgloss.Width(s) <= m.width || drop == 1 {
+			return faint.Render(s)
+		}
+	}
 }
 
 // confirmLines lists exactly what will happen, split by how it frees space.
@@ -477,10 +599,16 @@ func (m *Model) confirmLines(height int) []string {
 	var tb, cb int64
 	for _, it := range run {
 		if len(it.Command) > 0 {
-			cmds, cb = append(cmds, it), cb+it.Size.Allocated
+			cmds, cb = append(cmds, it), cb+it.Size.Exclusive()
 		} else {
-			trash, tb = append(trash, it), tb+it.Size.Allocated
+			trash, tb = append(trash, it), tb+it.Size.Exclusive()
 		}
+	}
+	// heading puts the total at the right edge of a line that fits.
+	heading := func(st lipgloss.Style, text string, n int64) string {
+		w := min(m.width, 100) - 2
+		total := format.Bytes(n)
+		return st.Render(text + strings.Repeat(" ", max(2, w-lipgloss.Width(text)-len(total))) + total)
 	}
 	lines := []string{""}
 	if m.copts.Mode == clean.DryRun {
@@ -493,20 +621,20 @@ func (m *Model) confirmLines(height int) []string {
 				lines = append(lines, faint.Render(fmt.Sprintf("      … and %d more", len(items)-i)))
 				return
 			}
-			lines = append(lines, fmt.Sprintf("      %9s  %s", format.Bytes(it.Size.Allocated), show(it)))
+			lines = append(lines, fmt.Sprintf("      %9s  %s", format.Bytes(it.Size.Exclusive()), show(it)))
 		}
 	}
 	if len(trash) > 0 {
-		h := fmt.Sprintf("  Move to the %s · recoverable, frees space when you empty it", clean.TrashName)
+		h := fmt.Sprintf("  Move to the %s · recoverable", clean.TrashName)
 		st := green
 		if m.copts.Mode == clean.Permanent {
 			h, st = "  Delete permanently · NOT recoverable", red
 		}
-		lines = append(lines, st.Render(fmt.Sprintf("%-72s %9s", h, format.Bytes(tb))))
+		lines = append(lines, heading(st, h, tb))
 		list(trash, func(it *scan.Item) string { return m.tilde(it.Path) })
 	}
 	if len(cmds) > 0 {
-		lines = append(lines, "", magenta.Render(fmt.Sprintf("%-72s %9s", "  Official commands · the tool deletes, frees space now", format.Bytes(cb))))
+		lines = append(lines, "", heading(magenta, "  Official commands · the tool deletes them", cb))
 		list(cmds, func(it *scan.Item) string { return report.CommandText(it) })
 	}
 	if len(refuse) > 0 {
@@ -527,21 +655,30 @@ func (m *Model) confirmLines(height int) []string {
 }
 
 func (m *Model) legendLines() []string {
-	return []string{
-		"",
-		"  " + bold.Render("Safety"),
-		"    " + badge(scan.Safe) + "  rebuildable and idle; " + bold.Render("s") + " selects these in projects, " + bold.Render("a") + " everywhere",
-		"    " + badge(scan.Review) + "  allowed, but worth a look: recent project, no lockfile, local changes, deployable output",
-		"    " + badge(scan.Protected) + "  shown for context; git tracks it or does not ignore it, it is your data, or its tool is missing",
-		"    " + badge(scan.Live) + "  a dev server, build or package manager is using it right now",
-		"",
-		"  " + bold.Render("SIZE") + " is on disk; " + cyan.Render("FREES") + " appears when much of it is shared (pnpm and Bun store clones, hard links).",
-		"  The bar's coloured part frees space now; the " + cyan.Render("cyan") + " part is shared and only goes when its store is pruned.",
-		"",
-		"  Directories move to the " + clean.TrashName + ". Caches, global packages and Node versions are removed by",
-		"  their own tool (" + magenta.Render("npm cache clean, pnpm store prune, npm uninstall -g, nvm uninstall …") + "), which deletes.",
-		"  Free space is measured from the disk after each action, not assumed.",
-		"",
-		"  " + bold.Render("tab") + " groups by project, framework or idle time  ·  " + bold.Render("o") + " sorts by size, idle time or name",
+	var out []string
+	para := func(indent, text string) {
+		w := max(20, m.width-len(indent)-1)
+		for _, l := range strings.Split(ansi.Wrap(text, w, ""), "\n") {
+			out = append(out, indent+l)
+		}
 	}
+	out = append(out, "", "  "+bold.Render("Safety"))
+	para("    ", badge(scan.Safe)+"  rebuildable and idle; "+bold.Render("s")+" selects these in projects, "+bold.Render("a")+" everywhere")
+	para("    ", badge(scan.Review)+"  allowed, but worth a look: recent project, no lockfile, local changes, deployable output, worktree")
+	para("    ", badge(scan.Protected)+"  shown, never removed: git tracks it or does not ignore it, it holds your data, or its tool is missing")
+	para("    ", badge(scan.Live)+"  a dev server, build or package manager is using it right now")
+	out = append(out, "")
+	para("  ", "Moving to the "+clean.TrashName+" frees space when you empty it; official commands free it right away.")
+	out = append(out, "")
+	para("  ", bold.Render("SIZE")+" is on disk. "+cyan.Render("FREES")+" appears when much of it is shared (pnpm and Bun store clones, hard links) and is what removing it frees now. The bar's coloured part frees space now; the "+cyan.Render("cyan")+" part goes only when its store is pruned.")
+	para("  ", "Folders move to the "+clean.TrashName+". Caches, global packages and Node versions are removed by their own tool ("+magenta.Render("npm cache clean, pnpm store prune, npm uninstall -g, nvm uninstall …")+"). Free space is measured from the disk, not assumed.")
+	out = append(out, "")
+	para("  ", bold.Render("Keys")+"  ↑↓/jk move · space select · s safe in projects · a all safe · enter clean (asks first) · / filter · tab group by project, framework or idle time · o sort by size, idle time or name · R rescan · q quit")
+	if m.res != nil && len(m.res.Warnings) > 0 {
+		out = append(out, "", "  "+yellow.Render("Warnings"))
+		for _, w := range m.res.Warnings {
+			para("    ", yellow.Render("⚠ "+w))
+		}
+	}
+	return out
 }

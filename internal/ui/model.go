@@ -89,6 +89,7 @@ type Model struct {
 	filter    string
 	filtering bool
 	cursorKey string
+	moved     bool // the user moved the cursor; until then it stays on top
 	offset    int
 	width     int
 	height    int
@@ -172,6 +173,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.selected, it.ID)
 			}
 		}
+		// Sizes re-sort the list; keep the first row in view until the
+		// user starts moving.
+		if rows := m.rows(); !m.moved && len(rows) > 0 {
+			m.cursorKey, m.offset = firstItem(rows), 0
+		}
 		return m, waitSize(m.sizes)
 	case measureDone:
 		m.measuring = false
@@ -242,6 +248,10 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	rows := m.rows()
 	i := m.cursor(rows)
 	switch k {
+	case "up", "k", "down", "j", "pgup", "ctrl+u", "pgdown", "ctrl+d", "home", "g", "end", "G":
+		m.moved = true
+	}
+	switch k {
 	case "q":
 		if m.busy() {
 			return nil
@@ -276,10 +286,11 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		i = len(rows) - 1
 	case "tab":
 		m.group = (m.group + 1) % 3
-		m.offset = 0
+		m.top()
 		return nil
 	case "o":
 		m.sort = (m.sort + 1) % 3
+		m.top()
 		return nil
 	case "R", "ctrl+r":
 		if m.busy() || m.measuring {
@@ -293,10 +304,10 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	case "s":
-		m.toggle(m.matching(func(it *scan.Item) bool { return it.Safety.Level == scan.Safe && it.Category == scan.CatProject }))
+		m.toggle(m.matching(func(it *scan.Item) bool { return bulk(it) && it.Category == scan.CatProject }))
 		return nil
 	case "a":
-		m.toggle(m.matching(func(it *scan.Item) bool { return it.Safety.Level == scan.Safe }))
+		m.toggle(m.matching(bulk))
 		return nil
 	case "enter", "d", "delete", "backspace":
 		m.ask(rows, i)
@@ -309,6 +320,18 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.cursorKey = rows[i].key()
 	}
 	return nil
+}
+
+// bulk: what s and a select: safe items that hold something.
+func bulk(it *scan.Item) bool { return it.Safety.Level == scan.Safe && it.Size.Allocated > 0 }
+
+// top puts the cursor on the first item after the order changed, unless the
+// user has moved it.
+func (m *Model) top() {
+	m.offset = 0
+	if rows := m.rows(); !m.moved && len(rows) > 0 {
+		m.cursorKey = firstItem(rows)
+	}
 }
 
 // selectable: measured, allowed, not done.

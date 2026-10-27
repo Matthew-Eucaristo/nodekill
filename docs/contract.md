@@ -43,7 +43,7 @@ Read-only. Roots default to `~/dev`, else the current directory. Unless `--no-gl
 | --- | --- |
 | `id` | Stable id (`art-…` project artifact, `glb-…` machine-wide). Use it in plans. |
 | `fingerprint` | Hash of the safety-relevant state. Sizes and times are excluded, so a build writing into `node_modules` does not invalidate a plan. |
-| `kind` | Catalog kind: `node_modules`, `next`, `turbo`, … (see `artifact_kinds`), or `npm-cache`, `npx`, `pnpm-store`, `pnpm-store-old`, `yarn-cache`, `yarn-berry-cache`, `bun-cache`, `deno-cache`, `corepack-cache`, `node-gyp`, `typescript-cache`, `electron-cache`, `electron-builder-cache`, `playwright-browsers`, `cypress-binaries`, `puppeteer-browsers`, `npm-global`, `pnpm-global`, `bun-global`, `node-version`. |
+| `kind` | Catalog kind: `node_modules`, `next`, `turbo`, … (see `artifact_kinds`), or `npm-cache`, `npx`, `pnpm-store`, `pnpm-store-old`, `yarn-cache`, `yarn-berry-cache`, `bun-cache`, `deno-cache`, `corepack-cache`, `node-gyp`, `nvm-cache`, `typescript-cache`, `electron-cache`, `electron-builder-cache`, `playwright-browsers`, `cypress-binaries`, `puppeteer-browsers`, `npm-global`, `pnpm-global`, `bun-global`, `yarn-global`, `deno-global`, `node-version`. |
 | `category` | `project`, `cache`, `global` or `runtime`. |
 | `name`, `path` | Display name and path (`~/…`). |
 | `project` | For project items: `{path, name, workspace, package_manager, lockfiles, tools, repo, in_linked_worktree, last_activity{at, source, age_days}, processes_checked, processes[{pid, command}]}`; `null` otherwise. `workspace` is the monorepo root the project belongs to (itself when standalone). |
@@ -66,7 +66,7 @@ Read-only. Roots default to `~/dev`, else the current directory. Unless `--no-gl
 | `protected` | nodekill will not act on it. |
 | `live` | In use right now; nothing is allowed. |
 
-`capabilities --json` lists every code with its effect. Current codes: `in_use`, `tool_running` (live); `not_ignored`, `tracked`, `git_error`, `nested_repo`, `no_git`, `catalog`, `not_installed`, `unknown_format`, `current`, `no_command`, `dependents` (protected); `recent`, `unknown_age`, `no_lockfile`, `ambiguous_pm`, `local_changes`, `liveness_unknown`, `deployable`, `catalog_review`, `shared_store` (review).
+`capabilities --json` lists every code with its effect. Current codes: `in_use`, `tool_running` (live); `not_ignored`, `tracked`, `git_error`, `nested_repo`, `no_git`, `catalog`, `not_installed`, `unknown_format`, `current`, `no_command`, `dependents`, `broad_path` (protected); `recent`, `unknown_age`, `no_lockfile`, `ambiguous_pm`, `local_changes`, `liveness_unknown`, `deployable`, `catalog_review`, `shared_store`, `worktree`, `partial_read` (review).
 
 ### Streaming: `nodekill scan --ndjson`
 

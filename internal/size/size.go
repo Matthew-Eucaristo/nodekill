@@ -42,6 +42,9 @@ type Result struct {
 	// Repo is set when a .git lies below the root: someone's checkout, not
 	// a generated directory.
 	Repo bool
+	// Unreadable counts directories that could not be listed (permissions),
+	// so Size and Newest are incomplete when it is not zero.
+	Unreadable int64
 }
 
 // Options tune a measurement.
@@ -71,10 +74,11 @@ type walker struct {
 	files   atomic.Int64
 	newest  atomic.Int64
 	repo    atomic.Bool
+	unread  atomic.Int64
 }
 
 // Measure walks root. It never follows symlinks and stays on root's device.
-// Unreadable entries are skipped, not fatal.
+// Unreadable directories are counted in Result.Unreadable, not fatal.
 func Measure(root string, opts Options) Result {
 	if opts.Workers <= 0 {
 		opts.Workers = max(4, runtime.NumCPU())
@@ -98,7 +102,7 @@ func Measure(root string, opts Options) Result {
 			w.shared.Add(w.linkLen[id])
 		}
 	}
-	r := Result{Size: Size{w.alloc.Load(), w.shared.Load(), w.files.Load()}, Repo: w.repo.Load()}
+	r := Result{Size: Size{w.alloc.Load(), w.shared.Load(), w.files.Load()}, Repo: w.repo.Load(), Unreadable: w.unread.Load()}
 	if ns := w.newest.Load(); ns > 0 {
 		r.Newest = time.Unix(0, ns)
 	}
@@ -110,10 +114,16 @@ func Measure(root string, opts Options) Result {
 func (w *walker) dir(path, rel string, skip bool) {
 	f, err := os.Open(path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			w.unread.Add(1)
+		}
 		return
 	}
-	entries, _ := f.ReadDir(-1)
+	entries, err := f.ReadDir(-1)
 	f.Close()
+	if err != nil {
+		w.unread.Add(1)
+	}
 	for _, e := range entries {
 		p := filepath.Join(path, e.Name())
 		r := e.Name()

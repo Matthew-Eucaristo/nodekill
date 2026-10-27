@@ -23,7 +23,7 @@ func freshProcs() *procs.Table {
 	procsMu.Lock()
 	defer procsMu.Unlock()
 	if procsLast == nil || time.Since(procsAt) > 3*time.Second {
-		procsLast, procsAt = procs.Snapshot(), time.Now()
+		procsLast, procsAt = Snapshot(), time.Now()
 	}
 	return procsLast
 }

@@ -32,6 +32,9 @@ func privateSize(path string) (int64, bool) {
 	}
 	al := attrList{bitmapCount: unix.ATTR_BIT_MAP_COUNT, fork: attrCmnExtPrivateSize}
 	var buf [16]byte // u_int32_t length, then off_t
+	// x/sys has no getattrlist wrapper; on darwin Syscall6 goes through
+	// libSystem's syscall(), so the deprecated raw number still works.
+	//lint:ignore SA1019 no libSystem wrapper exists for getattrlist in x/sys.
 	_, _, errno := unix.Syscall6(unix.SYS_GETATTRLIST, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&al)),
 		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), unix.FSOPT_NOFOLLOW|unix.FSOPT_ATTR_CMN_EXTENDED, 0)
 	if errno != 0 || binary.LittleEndian.Uint32(buf[0:4]) < 12 {

@@ -65,6 +65,7 @@ type Item struct {
 	Ignored, Tracked bool
 	GitErr           string
 	NestedRepo       bool
+	Unreadable       int64 // folders inside that could not be listed
 
 	Safety Safety
 	Errors []string
@@ -133,6 +134,14 @@ func Scan(opts Options) (*Result, error) {
 		w.walk(root)
 	}
 	res.Dirs = w.dirs
+	if n := len(w.denied); n > 0 {
+		slices.Sort(w.denied)
+		first := w.denied[0]
+		if rel, err := filepath.Rel(opts.Home, first); err == nil && opts.Home != "" && !strings.HasPrefix(rel, "..") {
+			first = filepath.Join("~", rel)
+		}
+		res.Warnings = append(res.Warnings, fmt.Sprintf("%d folder(s) could not be read (permission denied), e.g. %s; projects inside them are not listed", n, first))
+	}
 	seen := map[string]bool{}
 	for _, p := range w.found {
 		if !seen[norm(p.Path)] {
@@ -141,7 +150,7 @@ func Scan(opts Options) (*Result, error) {
 		}
 	}
 	slices.SortFunc(res.Projects, func(a, b *Project) int { return strings.Compare(a.Path, b.Path) })
-	table := procs.Snapshot()
+	table := Snapshot()
 	res.Items = evaluate(res.Projects, table, time.Now())
 	if opts.Global {
 		g, warns := globals(opts.Env, table)
@@ -416,7 +425,13 @@ func installRecord(nm string) time.Time {
 
 // classify turns evidence into a level. It runs again after measuring.
 func (it *Item) classify(now time.Time) {
+	partial := func(s *Safety) {
+		if it.Unreadable > 0 {
+			s.add(ReasonPartialRead, Review, fmt.Sprintf("%d folder(s) inside could not be read, so its size and last activity may be incomplete", it.Unreadable))
+		}
+	}
 	if it.Category != CatProject {
+		partial(&it.Safety)
 		it.fingerprint()
 		return
 	}
@@ -447,6 +462,9 @@ func (it *Item) classify(now time.Time) {
 	}
 	if it.NestedRepo {
 		s.add(ReasonNestedRepo, Protected, "another repository lies inside")
+	}
+	if p.Worktree {
+		s.add(ReasonWorktree, Review, "in a linked git worktree that an agent or app may still be using (fell manages the worktree itself)")
 	}
 	if len(p.Live) > 0 {
 		var names []string
@@ -482,6 +500,7 @@ func (it *Item) classify(now time.Time) {
 			s.add(ReasonLocalChanges, Review, "files changed after the last install ("+it.Newest.Format("2006-01-02")+"); patches would be lost")
 		}
 	}
+	partial(&s)
 	it.Safety = s
 	it.fingerprint()
 }
@@ -533,6 +552,7 @@ func Measure(it *Item) Measurement {
 // Apply records a measurement and re-checks the item.
 func (it *Item) Apply(m Measurement) {
 	it.Measured, it.Size, it.Newest = true, m.Result.Size, m.Result.Newest
+	it.Unreadable = m.Result.Unreadable
 	it.NestedRepo = m.Result.Repo && it.Category == CatProject
 	it.classify(time.Now())
 }

@@ -90,6 +90,7 @@ type Project struct {
 	Errors []string
 
 	pkg       *packageJSON
+	root      *Project        // workspace root, when this is a member
 	names     map[string]bool // top-level entries
 	workspace bool            // declares workspaces
 	newest    time.Time       // newest source file seen while walking
@@ -102,6 +103,12 @@ func (p *Project) has(dep string) bool {
 	_, a := p.pkg.Dependencies[dep]
 	_, b := p.pkg.DevDependencies[dep]
 	return a || b
+}
+
+// usesTool: dep is a dependency here or of the workspace root, where
+// monorepos usually hoist test runners and build tools.
+func (p *Project) usesTool(dep string) bool {
+	return p.has(dep) || (p.root != nil && p.root.has(dep))
 }
 
 func (p *Project) hasPrefix(prefix string) bool {
@@ -171,6 +178,7 @@ func newProject(dir string, names map[string]bool) *Project {
 // lockfiles here or in the workspace root, else the marker node_modules
 // carries. Several different lockfiles leave it ambiguous.
 func (p *Project) detectPM(root *Project) {
+	p.root = root
 	if p.pkg != nil && p.pkg.PackageManager != "" {
 		name, _, _ := strings.Cut(p.pkg.PackageManager, "@")
 		if pm := PM(name); slices.Contains([]PM{NPM, PNPM, Yarn, Bun}, pm) {

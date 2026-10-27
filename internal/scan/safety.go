@@ -44,6 +44,9 @@ const (
 	ReasonDeployable      = "deployable"       // review: build output that may be what you ship
 	ReasonCatalogReview   = "catalog_review"   // review: the catalog marks it for a look
 	ReasonSharedStore     = "shared_store"     // review: other projects depend on it (e.g. Bun's global store)
+	ReasonBroadPath       = "broad_path"       // protected: a cleanup would empty a folder outside your home or too close to it
+	ReasonWorktree        = "worktree"         // review: inside a linked git worktree, which an agent or app may still use
+	ReasonPartialRead     = "partial_read"     // review: some files inside could not be read, so size and activity are incomplete
 )
 
 // Reason explains one piece of evidence.
@@ -112,6 +115,9 @@ var Reasons = []ReasonInfo{
 	{ReasonDeployable, Review, "not preselected: build output that may be what you deploy or publish"},
 	{ReasonCatalogReview, Review, "not preselected: rebuildable, but worth a look first"},
 	{ReasonSharedStore, Review, "not preselected: other projects use it and must reinstall afterwards"},
+	{ReasonBroadPath, Protected, "blocks: the tool's cleanup would empty a folder outside your home, or home itself or a top-level folder of it"},
+	{ReasonWorktree, Review, "not preselected: it sits in a linked git worktree that an agent or app may still be using"},
+	{ReasonPartialRead, Review, "not preselected: some files inside could not be read, so its size and last activity may be incomplete"},
 }
 
 var (

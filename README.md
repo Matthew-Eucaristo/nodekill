@@ -4,36 +4,9 @@
 
 nodekill finds every `node_modules`, framework cache and build folder under your projects, plus the machine-wide Node footprint: package-manager caches and stores, `npx` downloads, global packages and old Node versions. It shows how much each one really frees, explains why it is safe or not, and removes what you pick. Folders go to the Trash. Caches, global packages and Node versions are removed only by their own tool (`npm cache clean`, `pnpm store prune`, `npm uninstall -g`, `nvm uninstall`, …).
 
-It is a single Go binary for macOS (first-class), Linux and Windows (best effort). It needs no Node.js of its own and makes no network requests.
+It is a single Go binary for macOS (first-class), Linux and Windows (best effort). It needs no Node.js of its own, and it never contacts the network itself.
 
-```
- nodekill  ● trash  ·  26.7 GB on disk  ·  22.8 GB freeable  ·  8.7 GB safe  ·  211.4 GB free  ·  ~/dev
-
-                         SIZE      FREES  IDLE      SAFETY      ITEM  (group: project · sort: size)
-  ○ ~/dev/old-shop  1.6 GB  npm · Next.js · active 3mo ago
-  ● █████▍········   831.2 MB             3mo       ● safe      node_modules
-  ● ████▊·········   725.3 MB             3mo       ● safe      .next
-  ○ ~/dev/dashboard  1.5 GB  npm · Vite · active today
-  ○ █████████▊····     1.5 GB             today     ◐ review    node_modules  recent
-  ○ ~/dev/video  2.0 GB  npm · Remotion · active 3d ago
-    ████████······     1.2 GB             3d        ⊘ protected out  your data
-  ○ ~/dev/mono  567.0 MB  pnpm · TanStack, Vite · active 2w ago
-  ○ ███▋··········   567.0 MB    30.0 MB  2w        ● safe      node_modules
-  ○ Caches and stores  2.8 GB  6 item(s)
-  ○ ██████████████     2.1 GB   784.9 MB  —         ● safe      pnpm store  via pnpm store prune
-    ███▍··········   513.2 MB             —         ⊘ protected Yarn 2+ global cache  not installed
-  ○ Global packages and npx  63.6 MB  2 item(s)
-  ○ ▎·············    46.4 MB             8mo       ◐ review    typescript@5.9.3  check first via npm uninstall -g typescript
-  ○ Node versions  262.1 MB  2 item(s)
-  ○ █▋············   181.0 MB             5mo       ◐ review    Node v20.19.5 (nvm)  check first via nvm uninstall v20.19.5
- ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ~/dev/old-shop/node_modules  831.2 MB on disk
-  Installed dependencies. Your package manager recreates them from the lockfile.
-  Action: move to the Trash  ·  comes back with: npm ci
-  rebuildable, ignored by git, not in use
-  2 selected (1.6 GB)  ·  moved to Trash 3.1 GB  ·  free space +0 B measured
-  ↑↓ move  space select  s safe in projects  a all safe  enter clean  / filter  tab group  o sort  ? legend  q quit
-```
+![nodekill scanning Node projects, caches, npx entries, global packages and nvm versions: it selects the idle safe folders, groups them by framework and idle time, and shows exactly what a dry run would move to the Trash and which official commands it would run](demo/demo.gif)
 
 ## Install
 
@@ -54,7 +27,31 @@ nodekill --older-than 30d --yes   # headless: trash the safe artifacts of projec
 nodekill scan --json           # machine-readable, read-only
 ```
 
-In the TUI, `space` selects, `s` selects the safe items in projects, `a` every safe item, `enter` shows exactly what will happen and asks before doing it. `tab` groups by project, framework or idle time, `o` sorts by size, idle time or name, `/` filters, and `?` explains every colour and column.
+In the TUI, `space` selects, `s` selects the safe items in projects and `a` every safe item. `enter` shows exactly what will happen and asks before doing it. `tab` groups by project, framework or idle time, `o` sorts by size, idle time or name, `/` filters, and `?` explains every colour, column and key. The layout fits terminals down to 60 columns, and `NO_COLOR` turns colour off.
+
+```
+$ nodekill --list
+nodekill: 27 item(s) in 5 project(s), 2.7 GB on disk, 2.3 GB freeable; 1.1 GB safe to clean  (roots: ~/dev)
+
+~/dev/storefront  npm · Next.js · active 3mo ago  429.9 MB
+  220.2 MB    safe  node_modules    art-abb796feca8c
+  209.7 MB    safe  .next           art-73f65e785488
+
+~/dev/dashboard  pnpm · Vite · active today  182.5 MB
+  178.3 MB  frees 4.1 kB  review  node_modules  recent             art-438c555dd351
+  4.2 MB                  review  dist          deployable recent  art-602cb3e21379
+
+Caches and stores  852.5 MB
+  272.6 MB             safe    npm cache                          via `npm cache clean --force`        glb-8b26737c8a2b
+  157.3 MB             safe    Yarn 1 cache                       via `yarn cache clean`               glb-5c41ddcb5249
+…
+Node versions  125.8 MB
+  41.9 MB    protected  Node v22.11.0 (nvm)  current via `nvm uninstall v22.11.0`         glb-52981247f837
+  41.9 MB    review     Node v20.18.0 (nvm)  catalog_review via `nvm uninstall v20.18.0`  glb-c42b7e64b486
+  41.9 MB    review     Node v18.20.4 (nvm)  catalog_review via `nvm uninstall v18.20.4`  glb-f6aa4093db0f
+```
+
+(The demo workspace from `demo/setup.sh`, trimmed. The `dashboard` dependencies are clones of the pnpm store, so removing them frees almost nothing until the store is pruned.)
 
 At the end nodekill prints a receipt that keeps three numbers apart, because they mean different things:
 
@@ -67,46 +64,64 @@ nodekill receipt
 
 ## What it finds
 
-**In projects** (a folder with `package.json`). A folder counts only at its exact place next to the file that proves the tool is used, never by name alone.
+**In projects** (a folder with `package.json`). A folder counts only at its exact place next to the file that proves the tool is used, never by name alone. Test runners and build tools hoisted to a workspace root count for its members.
 
 | Folder | When | Level |
 |---|---|---|
 | `node_modules` | always | safe |
-| `.next` (incl. Turbopack's `.next/cache` and `.next/dev/cache`) | `next` dependency or `next.config.*` | safe; review with `output: 'standalone'` |
-| `.nuxt` · `.output` | Nuxt / Nitro | safe · review |
-| `.svelte-kit`, `.angular/cache`, `.turbo`, `.nx/cache`, `.nx/workspace-data`, `.parcel-cache`, `.expo`, `.docusaurus`, `.react-router`, `.vinxi`, `.tanstack/tmp`, `.cache` (Gatsby), `.firebase`, `.yarn/unplugged`, `.nyc_output` | their tool's dependency or config | safe |
-| `.wrangler/tmp`, `.wrangler/cache` | Wrangler (local D1/KV/R2 data in `.wrangler/state` is never touched) | safe |
-| `.vercel/output` | Vercel (the project link and pulled env files are never touched) | review |
-| React Native: `ios/Pods` · `ios/build`, `android/app/build`, `android/.gradle` | `react-native`/`expo` with a Podfile or Gradle build | review · safe |
-| `dist`, `build`, `out`, `coverage`, `storybook-static` | a builder that writes them (Vite, Astro, Docusaurus, Next static export, …) | review; protected outside git |
+| `.next` (with Turbopack's `.next/cache` and `.next/dev/cache`) | `next` or `next.config.*` | safe; review with `output: 'standalone'` |
+| `.nuxt`, `.nitro` · `.output` | Nuxt, Nitro, SolidStart, TanStack Start | safe · review |
+| `.svelte-kit`, `.angular/cache`, `.turbo/cache`, `.nx/cache`, `.nx/workspace-data`, `.moon/cache`, `.parcel-cache`, `.expo`, `.docusaurus`, `.vitepress/cache`, `.react-router`, `.vinxi`, `.tanstack/tmp`, `.cache` (Gatsby), `.firebase`, `.yarn/unplugged`, `.nyc_output` | their tool's dependency or config | safe |
+| `.wrangler/tmp`, `.wrangler/cache`, `.netlify/functions-serve`, `.sst/platform`, `.sst/log`, `cdk.out`, `.mastra/.build` | Wrangler, Netlify, SST, AWS CDK, Mastra; their local data and state are never touched | safe |
+| Playwright `test-results`, `blob-report` · `playwright-report`; Cypress `videos`, `screenshots`, `downloads` | the test runner | safe · review |
+| React Native and Capacitor: `ios/Pods` · `ios/build`, `vendor/bundle`, `android/app/build`, `android/app/.cxx`, `android/build`, `android/.gradle` | `react-native`/`expo`/`@capacitor/*` with a Podfile, Gemfile or Gradle build | review · safe |
+| `src-tauri/target` (Tauri), `.astro`, `.open-next`, `.vercel/output`, `.serverless`, `.medusa/server`, `.strapi` | their tool | review |
+| `dist`, `build`, `out`, `_site`, `coverage`, `storybook-static`, Hardhat `artifacts` | a builder that writes them (Vite, Astro, Rsbuild, Rspack, tsdown, Docusaurus, Next static export, Electron Forge, electron-vite, Eleventy, Hardhat, …) | review; protected outside git |
+| Hardhat `cache` | Hardhat (not Foundry) | safe; protected outside git |
 | Remotion `out` | Remotion | protected: these are your renders |
 
-**On the machine**, each removed only by its owner's command:
+**On the machine**, each removed only by its owner's command, which nodekill runs from your home folder:
 
-| Item | Removed with |
-|---|---|
-| npm cache | `npm cache clean --force` |
-| each `npx` download, with when it last ran | `npm cache npx rm <key>` |
-| pnpm store | `pnpm store prune` (only packages no project references) |
-| Yarn 1 cache · Yarn 2+ global cache | `yarn cache clean` · `yarn cache clean --all` |
-| Bun cache · Deno cache · Corepack cache | `bun pm cache rm` · `deno clean` · `corepack cache clean` |
-| node-gyp headers, per Node version | `node-gyp remove <version>` (npm's bundled copy) |
-| global packages (npm, pnpm, Bun), with when each last ran | `npm uninstall -g` · `pnpm remove -g` · `bun remove -g` |
-| Node versions from nvm, fnm, mise, n, asdf, nodenv, nvm-windows, Homebrew `node@XX` | the manager's own uninstall |
-| TypeScript typings, Electron, electron-builder, Playwright, Cypress and Puppeteer downloads | no command exists: moved to the Trash |
+| Item | Removed with | What the tool itself advises |
+|---|---|---|
+| npm cache | `npm cache clean --force` | npm calls the cache self-healing; use `npm cache verify` for problems, clean only to reclaim space |
+| each `npx` download, with when it last ran | `npm cache npx rm <key>` (npm 11.2+) | npx downloads it again when needed |
+| pnpm store | `pnpm store prune` (only packages no project references) | safe, but not too often: pruned packages download again |
+| Yarn 1 cache · Yarn 2+ global cache | `yarn cache clean` (Yarn 2+ only when its `cacheFolder` is that folder) | Zero-Installs projects keep their own `.yarn/cache` |
+| Bun cache | `bun pm cache rm --cache-dir <dir>` | `bun pm cache prune` is the gentler option |
+| Deno cache | `deno clean` | it removes all of DENO_DIR, including the REPL history: review. Protected when it holds localStorage/KV data or Deno's install folder |
+| Corepack cache | `corepack cache clean` (Corepack 0.25+) | |
+| node-gyp headers, per Node version · nvm's download cache | `node-gyp remove <version>` (npm's bundled copy) · `nvm cache clear` | |
+| global packages (npm, pnpm, Bun, Yarn 1, `deno install`), with when each last ran | `npm uninstall -g` · `pnpm remove -g` · `bun remove -g` · `yarn global remove` · `deno uninstall -g` | npm and corepack are never offered |
+| Node versions from nvm, fnm, mise, n, asdf, nodenv, Homebrew `node@XX` | the manager's own uninstall (`brew uninstall` without autoremove) | the version on your PATH and each manager's default are protected |
+| Node versions from Volta, nvm-windows, nvs, proto, nvm.fish | listed with the command for you to run | Volta cannot uninstall; the others are not run until their behaviour is verified |
+| TypeScript typings, Electron, electron-builder, Playwright, Cypress and Puppeteer downloads | no command exists: moved to the Trash | |
 
-If the owning tool is not installed (a Yarn 2+ cache with no Yarn on `PATH`, say), the item is shown with the command to run, and nodekill leaves it alone. Old pnpm store formats (`store/v10` beside `v11`) have no pnpm command and move to the Trash after review. Volta cannot uninstall Node versions, so its versions are listed for information only.
+If the owning tool is not installed (a Yarn 2+ cache with no Yarn 2+ on `PATH`, say), the item is shown with the command to run, and nodekill leaves it alone. Outside a project, Corepack's default `yarn` is Yarn 1, so the Yarn 2+ cache is often in that state. Old pnpm store formats (`store/v10` beside `v11`) have no pnpm command and move to the Trash after review. [docs/rules.md](docs/rules.md) links the source for every rule and command.
 
 ## Safety model
 
 nodekill refuses anything it cannot verify. Every item gets a level and the evidence behind it:
 
-- **safe**: rebuildable, git-ignored with no tracked files, project idle 7+ days, nothing running in it. These may be bulk-selected.
-- **review**: allowed, never bulk-selected. The project changed this week, there is no lockfile (a reinstall may pick newer versions), files inside `node_modules` changed after the install (local patches), the output may be what you deploy, or it is a global tool or Node version you installed on purpose.
-- **protected**: shown, never removed. Git tracks files inside, or git does not ignore it. It is a generic name such as `dist` outside a repository. It holds your data. Another repository lies inside. Its tool is missing. It is the Node you are running, a manager's default, or `npm`/`corepack` themselves.
+- **safe**: rebuildable, git-ignored with no tracked files, project idle 7+ days, nothing running in it. These may be bulk-selected (empty folders are skipped).
+- **review**: allowed, never bulk-selected. Reasons include:
+  - the project changed this week;
+  - there is no lockfile, so a reinstall may pick newer versions;
+  - files inside `node_modules` changed after the install (local patches);
+  - the output may be what you deploy;
+  - it sits in a linked git worktree that an agent may still use (fell manages the worktree itself);
+  - some files inside could not be read;
+  - it is a global tool or Node version you installed on purpose.
+- **protected**: shown, never removed. Reasons include:
+  - git tracks files inside, or git does not ignore it;
+  - it is a generic name such as `dist` outside a repository;
+  - it holds your data, or another repository lies inside;
+  - its tool is missing;
+  - the tool's cleanup would empty a folder outside your home or a top-level folder of it;
+  - it is the Node you are running, a manager's default, or `npm`/`corepack` themselves.
 - **live**: a dev server, build, test runner or the package manager is working in it right now.
 
-Right before acting, nodekill reads the item again, refuses it if anything safety-relevant changed since the scan, and re-checks that the path is a real directory at its catalog position (symlinks are never followed or removed through). Commands run with a fixed argument list, never through a shell. `--dry-run`, `--list`, `--json` and `scan` never change anything.
+Right before acting, nodekill reads the item again and refuses it if anything safety-relevant changed since the scan. It also re-checks that the path is a real directory at its catalog position; symlinks are never followed or removed through. Commands run with a fixed argument list, never through a shell. `--dry-run`, `--list`, `--json` and `scan` never remove anything. To find caches, nodekill asks your tools read-only questions such as `npm config get cache` and `pnpm store path`. It turns off their prompts, update checks and downloads while it does. A tool may still touch its own folders when asked, for example pnpm updating its home folder's timestamp.
 
 The Trash is the default. `--permanent` deletes folders instead and turns the header red. Official commands delete by their tool's own design, so the confirmation screen lists them apart.
 
@@ -127,18 +142,26 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 something was refused · 4 something
 
 ## Platforms
 
-- **macOS**: first-class. APFS clone-aware sizes, Trash with Put Back (`/usr/bin/trash` on macOS 15+, else Finder), running-process checks via `lsof`.
+- **macOS**: first-class. Sizes account for APFS clones. The Trash supports Put Back (`/usr/bin/trash` on macOS 15+, else Finder). Running processes are checked with `lsof`.
 - **Linux**: freedesktop Trash, `/proc` process checks, hard-link-aware sizes.
-- **Windows**: best effort. Recycle Bin (folders whose paths would grow past the 260-character limit inside it are refused; use `--permanent`), no running-process check (so nothing is bulk-selected), sizes without hard-link detection.
+- **Windows**: best effort, with the full test suite running in CI. Folders go to the Recycle Bin; folders whose paths would grow past the 260-character limit inside it are refused, so use `--permanent` for those. There is no running-process check, so nothing is bulk-selected. Sizes are measured without hard-link detection.
+
+## Demo
+
+`demo/demo.tape` records `demo/demo.gif` with [VHS](https://github.com/charmbracelet/vhs) against generated fixtures: a fake home on a small disk image, plus stand-in `npm`, `pnpm`, `yarn` and `node` commands. Nothing from the real machine appears. To try the same workspace yourself, run `source demo/setup.sh`, then `nodekill`.
 
 ## Uninstall
 
+nodekill writes no configuration, cache, log or state anywhere. The only things it changes are the items you confirm. On Linux, the first move to the Trash creates the standard `~/.local/share/Trash` folders if they are missing.
+
 ```sh
 brew uninstall nodekill
-brew untap matthew-eucaristo/tap   # if nothing else uses it
+brew autoremove                     # removes Go if it was installed only to build nodekill
+brew cleanup --prune=all            # optional: clears Homebrew's download and build cache
+brew untap matthew-eucaristo/tap    # only if nothing else is installed from this tap
 ```
 
-nodekill writes no configuration, cache, log or state anywhere. The only things it changes are the items you confirm.
+Installed with `go install`? Run `rm "$(go env GOPATH)/bin/nodekill"`. Anything nodekill moved to the Trash stays there until you empty it or put it back.
 
 ## Credits
 

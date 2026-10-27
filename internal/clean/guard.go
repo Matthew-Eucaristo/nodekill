@@ -99,5 +99,16 @@ func checkCommand(it *scan.Item) error {
 	if fi, err := os.Stat(exe); err != nil || fi.IsDir() {
 		return fmt.Errorf("%s is not runnable", exe)
 	}
+	// A command that empties a folder may only empty a real folder well
+	// inside home, whatever the tool's configuration says.
+	if scan.Wipes(it.Kind) {
+		home, _ := os.UserHomeDir()
+		if !scan.DeepInHome(it.Path, home) {
+			return fmt.Errorf("refusing: %s would empty %s, which is not a folder inside your home", filepath.Base(exe), it.Path)
+		}
+		if fi, err := os.Lstat(it.Path); err != nil || !fi.IsDir() {
+			return fmt.Errorf("refusing: %s is not a real directory", it.Path)
+		}
+	}
 	return nil
 }

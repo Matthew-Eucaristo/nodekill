@@ -26,6 +26,7 @@ type walker struct {
 	mu      sync.Mutex
 	found   []*Project
 	dirs    int
+	denied  []string // folders that could not be listed
 }
 
 func newWalker(home string) *walker {
@@ -44,9 +45,8 @@ func newWalker(home string) *walker {
 			w.private[norm(filepath.Join(home, rel))] = true
 		}
 	}
-	for _, p := range []string{"/Applications", "/System", "/Library", "/opt/homebrew", "/usr", "/private", "/proc", "/sys", "/dev", "/nix", `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`} {
-		skip = append(skip, p)
-	}
+	skip = append(skip, "/Applications", "/System", "/Library", "/opt/homebrew", "/usr", "/private", "/proc", "/sys", "/dev", "/nix",
+		`C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`)
 	for _, p := range skip {
 		w.skip[norm(p)] = true
 	}
@@ -77,10 +77,20 @@ func (w *walker) visit(dir string, dev uint64, repo string, worktree bool, owner
 	defer w.wg.Done()
 	f, err := os.Open(dir)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			w.mu.Lock()
+			w.denied = append(w.denied, dir)
+			w.mu.Unlock()
+		}
 		return
 	}
-	entries, _ := f.ReadDir(-1)
+	entries, err := f.ReadDir(-1)
 	f.Close()
+	if err != nil {
+		w.mu.Lock()
+		w.denied = append(w.denied, dir)
+		w.mu.Unlock()
+	}
 	names := make(map[string]bool, len(entries))
 	for _, e := range entries {
 		names[e.Name()] = true

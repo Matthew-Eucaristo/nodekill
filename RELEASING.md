@@ -10,6 +10,8 @@ The Homebrew formula lives in [Matthew-Eucaristo/homebrew-tap](https://github.co
 
 ## Each release
 
+If the TUI changed visibly, re-record `demo/demo.gif` first (`vhs demo/demo.tape`, then check the frames) and commit it.
+
 ```sh
 V=0.1.0
 git tag v$V && git push origin v$V
