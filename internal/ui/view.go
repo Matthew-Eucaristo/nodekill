@@ -664,7 +664,7 @@ func (m *Model) legendLines() []string {
 	}
 	out = append(out, "", "  "+bold.Render("Safety"))
 	para("    ", badge(scan.Safe)+"  rebuildable and idle; "+bold.Render("s")+" selects these in projects, "+bold.Render("a")+" everywhere")
-	para("    ", badge(scan.Review)+"  allowed, but worth a look: recent project, no lockfile, local changes, deployable output, worktree")
+	para("    ", badge(scan.Review)+"  allowed, but worth a look: recent project, no lockfile, local changes, deployable output, worktree, a project git ignores")
 	para("    ", badge(scan.Protected)+"  shown, never removed: git tracks it or does not ignore it, it holds your data, or its tool is missing")
 	para("    ", badge(scan.Live)+"  a dev server, build or package manager is using it right now")
 	out = append(out, "")

@@ -66,7 +66,7 @@ Read-only. Roots default to `~/dev`, else the current directory. Unless `--no-gl
 | `protected` | nodekill will not act on it. |
 | `live` | In use right now; nothing is allowed. |
 
-`capabilities --json` lists every code with its effect. Current codes: `in_use`, `tool_running` (live); `not_ignored`, `tracked`, `git_error`, `nested_repo`, `no_git`, `catalog`, `not_installed`, `unknown_format`, `current`, `no_command`, `dependents`, `broad_path` (protected); `recent`, `unknown_age`, `no_lockfile`, `ambiguous_pm`, `local_changes`, `liveness_unknown`, `deployable`, `catalog_review`, `shared_store`, `worktree`, `partial_read` (review).
+`capabilities --json` lists every code with its effect. Current codes: `in_use`, `tool_running` (live); `not_ignored`, `tracked`, `git_error`, `nested_repo`, `no_git`, `catalog`, `not_installed`, `unknown_format`, `current`, `no_command`, `dependents`, `broad_path` (protected); `recent`, `unknown_age`, `no_lockfile`, `ambiguous_pm`, `local_changes`, `liveness_unknown`, `deployable`, `catalog_review`, `shared_store`, `worktree`, `partial_read`, `ignored_project` (review).
 
 ### Streaming: `nodekill scan --ndjson`
 

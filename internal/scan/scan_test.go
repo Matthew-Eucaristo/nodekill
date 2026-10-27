@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -271,5 +272,67 @@ func TestRefreshKeepsFingerprint(t *testing.T) {
 	fresh, _ = Refresh(it, Options{Env: DefaultEnv()})
 	if fresh.Fingerprint == it.Fingerprint || !slices.Contains(codes(fresh), ReasonNotIgnored) {
 		t.Fatalf("fingerprint should change when git stops ignoring it: %v", codes(fresh))
+	}
+}
+
+func TestWorkspaceMembership(t *testing.T) {
+	for _, c := range []struct {
+		yaml  string
+		globs []string
+		ok    bool
+	}{
+		{"packages:\n  - apps/*\n  - 'packages/**' # libs\n  - \"!**/test/**\"\nallowBuilds:\n  esbuild: true\n", []string{"apps/*", "packages/**", "!**/test/**"}, true},
+		{"packages:\n- apps/*\n", []string{"apps/*"}, true},
+		{"packages: ['apps/*', \"libs/*\"]\n", []string{"apps/*", "libs/*"}, true},
+		{"packages: []\n", nil, true},
+		{"onlyBuiltDependencies:\n  - esbuild\n", nil, false}, // no list: pnpm includes every subfolder
+		{"packages:\n  key: value\n", nil, false},
+	} {
+		globs, ok := pnpmPackages(c.yaml)
+		if ok != c.ok || !slices.Equal(globs, c.globs) {
+			t.Errorf("%q: got %v %v, want %v %v", c.yaml, globs, ok, c.globs, c.ok)
+		}
+	}
+	w := &Project{Path: "/mono", globs: []string{"./apps/*", "packages/**", "!**/test/**"}, globsKnown: true}
+	for rel, in := range map[string]bool{"apps/web": true, "apps/web/sub": false, "packages/a/b": true, "packages/a/test/x": false,
+		".data/prod/api": false, "docs": false} {
+		if got := w.includes(&Project{Path: filepath.Join("/mono", rel)}); got != in {
+			t.Errorf("includes %s = %v, want %v", rel, got, in)
+		}
+	}
+	if !(&Project{Path: "/mono"}).includes(&Project{Path: "/mono/anything"}) {
+		t.Error("unknown patterns must count every subfolder as a member")
+	}
+}
+
+// A deployment bundle copied into a gitignored folder of a monorepo is not
+// a workspace member: it does not share the root's lockfile, and nodekill
+// must not claim it can be recreated from one.
+func TestDeployBundleIsNotAWorkspaceMember(t *testing.T) {
+	root := testfix.Real(t, t.TempDir())
+	mono := filepath.Join(root, "mono")
+	testfix.Write(t, mono, map[string]string{
+		"package.json": `{"name":"mono","private":true}`, "pnpm-workspace.yaml": "packages:\n  - apps/*\n", "pnpm-lock.yaml": "x",
+		".gitignore": ".data\nnode_modules/\n", "node_modules/.pnpm/x": "x",
+		"apps/api/package.json": pkg(""), "apps/api/node_modules/.modules.yaml": "{}",
+		".data/prod/api/package.json": pkg(""), ".data/prod/api/dist/main.js": "x", ".data/prod/api/node_modules/a/index.js": "x",
+		".data/prod/secrets.env": "x", ".data/pg/base": "x",
+	})
+	testfix.Repo(t, mono, testfix.Old)
+	res := scanFix(t, root)
+
+	member := item(t, res, filepath.Join(mono, "apps/api/node_modules"))
+	want(t, member, Safe)
+	if !slices.Equal(member.Project.Lockfiles, []string{"pnpm-lock.yaml"}) || member.Explain != Rules[0].Explain {
+		t.Errorf("member: lockfiles %v, explain %q", member.Project.Lockfiles, member.Explain)
+	}
+
+	bundle := item(t, res, filepath.Join(mono, ".data/prod/api/node_modules"))
+	want(t, bundle, Review, ReasonNoLockfile, ReasonIgnoredProject)
+	if len(bundle.Project.Lockfiles) != 0 || strings.Contains(bundle.Explain, "from the lockfile") {
+		t.Errorf("bundle: lockfiles %v, explain %q", bundle.Project.Lockfiles, bundle.Explain)
+	}
+	if member.Safety.Has(ReasonIgnoredProject) {
+		t.Error("a member git does not ignore is not an ignored project")
 	}
 }

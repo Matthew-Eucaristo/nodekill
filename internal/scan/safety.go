@@ -47,6 +47,7 @@ const (
 	ReasonBroadPath       = "broad_path"       // protected: a cleanup would empty a folder outside your home or too close to it
 	ReasonWorktree        = "worktree"         // review: inside a linked git worktree, which an agent or app may still use
 	ReasonPartialRead     = "partial_read"     // review: some files inside could not be read, so size and activity are incomplete
+	ReasonIgnoredProject  = "ignored_project"  // review: git ignores the project folder itself (a bundle or data, not source)
 )
 
 // Reason explains one piece of evidence.
@@ -108,7 +109,7 @@ var Reasons = []ReasonInfo{
 	{ReasonDependents, Protected, "blocks: other installed software depends on it (e.g. Homebrew formulae)"},
 	{ReasonRecent, Review, "not preselected: the project changed in the last 7 days"},
 	{ReasonUnknownAge, Review, "not preselected: the project's last activity is unknown"},
-	{ReasonNoLockfile, Review, "not preselected: without a lockfile a reinstall may resolve newer versions"},
+	{ReasonNoLockfile, Review, "not preselected: without a lockfile a reinstall may resolve newer versions, or not reproduce the folder at all"},
 	{ReasonAmbiguousPM, Review, "not preselected: lockfiles of several package managers"},
 	{ReasonLocalChanges, Review, "not preselected: files inside changed after the install (patches?)"},
 	{ReasonLivenessUnknown, Review, "not preselected: running processes could not be checked"},
@@ -118,6 +119,7 @@ var Reasons = []ReasonInfo{
 	{ReasonBroadPath, Protected, "blocks: the tool's cleanup would empty a folder outside your home, or home itself or a top-level folder of it"},
 	{ReasonWorktree, Review, "not preselected: it sits in a linked git worktree that an agent or app may still be using"},
 	{ReasonPartialRead, Review, "not preselected: some files inside could not be read, so its size and last activity may be incomplete"},
+	{ReasonIgnoredProject, Review, "not preselected: git ignores the project folder itself, so it may be a deployment bundle or local data rather than source"},
 }
 
 var (

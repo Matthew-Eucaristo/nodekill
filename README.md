@@ -107,7 +107,8 @@ nodekill refuses anything it cannot verify. Every item gets a level and the evid
 - **safe**: rebuildable, git-ignored with no tracked files, project idle 7+ days, nothing running in it. These may be bulk-selected (empty folders are skipped).
 - **review**: allowed, never bulk-selected. Reasons include:
   - the project changed this week;
-  - there is no lockfile, so a reinstall may pick newer versions;
+  - there is no lockfile for the project, so a reinstall may pick newer versions or not work at all (a copied deployment bundle has none; folders outside a workspace's `packages` patterns do not share its lockfile);
+  - git ignores the project folder itself, so it is likely a deployment bundle or local data rather than source;
   - files inside `node_modules` changed after the install (local patches);
   - the output may be what you deploy;
   - it sits in a linked git worktree that an agent may still use (fell manages the worktree itself);

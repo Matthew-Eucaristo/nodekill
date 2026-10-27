@@ -252,6 +252,9 @@ func evaluate(projects []*Project, table *procs.Table, now time.Time) []*Item {
 			it.dev, it.ino = size.Identity(fi)
 			if r.Kind == "node_modules" {
 				it.Record = installRecord(it.Path)
+				if len(p.Lockfiles) == 0 {
+					it.Explain = "Installed dependencies. There is no lockfile to recreate them from exactly."
+				}
 			}
 			items = append(items, it)
 		}
@@ -302,6 +305,21 @@ func checkRepo(repo string, its []*Item) {
 		rels[i] = filepath.ToSlash(rel)
 		in.WriteString(rels[i] + "/\x00")
 	}
+	// The project folders too: a project git ignores is not source.
+	projects := map[*Project]string{}
+	for _, it := range its {
+		p := it.Project
+		if _, seen := projects[p]; seen || it.GitErr != "" {
+			continue
+		}
+		rel, err := filepath.Rel(repo, p.Path)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			projects[p] = ""
+			continue
+		}
+		projects[p] = filepath.ToSlash(rel)
+		in.WriteString(projects[p] + "/\x00")
+	}
 	if !gitx.Available() {
 		for _, it := range its {
 			it.GitErr = "git is not installed"
@@ -320,6 +338,9 @@ func checkRepo(repo string, its []*Item) {
 		if p != "" {
 			ignored[strings.TrimSuffix(p, "/")] = true
 		}
+	}
+	for p, rel := range projects {
+		p.GitIgnored = rel != "" && ignored[rel]
 	}
 	for i := 0; i < len(its); i += 200 {
 		chunk := its[i:min(i+200, len(its))]
@@ -460,6 +481,9 @@ func (it *Item) classify(now time.Time) {
 	case !it.Ignored:
 		s.add(ReasonNotIgnored, Protected, "git does not ignore "+r.Rel+", so it may be source")
 	}
+	if p.GitIgnored {
+		s.add(ReasonIgnoredProject, Review, "git ignores the project folder itself, so it is not source: it may be a deployment bundle or local data")
+	}
 	if it.NestedRepo {
 		s.add(ReasonNestedRepo, Protected, "another repository lies inside")
 	}
@@ -492,7 +516,7 @@ func (it *Item) classify(now time.Time) {
 		}
 		switch {
 		case len(p.Lockfiles) == 0:
-			s.add(ReasonNoLockfile, Review, "no lockfile: a reinstall may resolve newer versions")
+			s.add(ReasonNoLockfile, Review, "no lockfile for this project: a reinstall may resolve newer versions, or fail if the folder was copied from elsewhere")
 		case len(pms) > 1 && p.PMSource != "packageManager":
 			s.add(ReasonAmbiguousPM, Review, "lockfiles of several package managers: "+strings.Join(p.Lockfiles, ", "))
 		}

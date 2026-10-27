@@ -3,6 +3,7 @@ package scan
 import (
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -80,6 +81,9 @@ type Project struct {
 
 	Repo     string // git work tree root; "" outside git
 	Worktree bool   // a linked git worktree (fell owns the worktree itself)
+	// GitIgnored: git ignores the project folder itself, so it is not
+	// source (a deployment bundle, local data, a scratch copy).
+	GitIgnored bool
 
 	LastActivity   time.Time
 	ActivitySource string // "commit", "files" or ""
@@ -89,11 +93,13 @@ type Project struct {
 
 	Errors []string
 
-	pkg       *packageJSON
-	root      *Project        // workspace root, when this is a member
-	names     map[string]bool // top-level entries
-	workspace bool            // declares workspaces
-	newest    time.Time       // newest source file seen while walking
+	pkg        *packageJSON
+	root       *Project        // workspace root, when this is a member
+	names      map[string]bool // top-level entries
+	workspace  bool            // declares workspaces
+	globs      []string        // its workspace patterns; nil with globsKnown false means every subfolder
+	globsKnown bool
+	newest     time.Time // newest source file seen while walking
 }
 
 func (p *Project) has(dep string) bool {
@@ -170,15 +176,122 @@ func newProject(dir string, names map[string]bool) *Project {
 	}
 	ws := strings.TrimSpace(string(pkg.Workspaces))
 	p.workspace = (ws != "" && ws != "null" && ws != "[]" && ws != "{}") || names["pnpm-workspace.yaml"]
+	switch {
+	case names["pnpm-workspace.yaml"]:
+		if b, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml")); err == nil {
+			p.globs, p.globsKnown = pnpmPackages(string(b))
+		}
+	case p.workspace:
+		var list []string
+		var obj struct{ Packages []string }
+		if json.Unmarshal(pkg.Workspaces, &list) == nil {
+			p.globs, p.globsKnown = list, true
+		} else if json.Unmarshal(pkg.Workspaces, &obj) == nil {
+			p.globs, p.globsKnown = obj.Packages, true
+		}
+	}
 	p.Tools = detectTools(p)
 	return p
 }
 
+// pnpmPackages reads the packages list of pnpm-workspace.yaml. Without one
+// pnpm includes every subfolder; a layout it cannot read counts the same.
+func pnpmPackages(text string) (globs []string, ok bool) {
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		if i := strings.Index(line, " #"); i >= 0 {
+			line = line[:i]
+		}
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		switch {
+		case in && strings.HasPrefix(t, "-"):
+			globs = append(globs, strings.Trim(strings.TrimSpace(t[1:]), `"'`))
+		case line[0] != ' ' && line[0] != '\t':
+			if in {
+				return globs, true
+			}
+			if k, v, _ := strings.Cut(t, ":"); k == "packages" {
+				switch strings.TrimSpace(v) {
+				case "":
+					in = true
+				default:
+					// A flow sequence: packages: ['apps/*', "libs/**"]
+					list, ok := strings.CutPrefix(strings.TrimSpace(v), "[")
+					if list, ok = strings.CutSuffix(list, "]"); !ok || strings.ContainsAny(list, "[]{}") {
+						return nil, false
+					}
+					for _, g := range strings.Split(list, ",") {
+						if g = strings.Trim(strings.TrimSpace(g), `"'`); g != "" {
+							globs = append(globs, g)
+						}
+					}
+					return globs, true
+				}
+			}
+		case in:
+			return nil, false
+		}
+	}
+	return globs, in
+}
+
+// includes reports whether p is one of the workspace's members, by its
+// patterns ("apps/*", "packages/**", "!**/test/**").
+func (w *Project) includes(p *Project) bool {
+	if !w.globsKnown {
+		return true
+	}
+	rel, err := filepath.Rel(w.Path, p.Path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	in := false
+	for _, g := range w.globs {
+		neg := strings.HasPrefix(g, "!")
+		g = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(g, "!"), "./"), "/")
+		if globMatch(strings.Split(g, "/"), strings.Split(rel, "/")) {
+			if neg {
+				return false
+			}
+			in = true
+		}
+	}
+	return in
+}
+
+// globMatch matches path segments; "**" spans any number of them.
+func globMatch(pat, segs []string) bool {
+	if len(pat) == 0 {
+		return len(segs) == 0
+	}
+	if pat[0] == "**" {
+		for i := 0; i <= len(segs); i++ {
+			if globMatch(pat[1:], segs[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(segs) == 0 {
+		return false
+	}
+	ok, err := path.Match(pat[0], segs[0])
+	return ok && err == nil && globMatch(pat[1:], segs[1:])
+}
+
 // detectPM decides the package manager: the packageManager field, else the
-// lockfiles here or in the workspace root, else the marker node_modules
-// carries. Several different lockfiles leave it ambiguous.
+// lockfiles here or in the workspace root (members only), else the marker
+// node_modules carries. Several different lockfiles leave it ambiguous.
 func (p *Project) detectPM(root *Project) {
 	p.root = root
+	lockRoot := root
+	if root != nil && !root.includes(p) {
+		lockRoot = nil
+	}
 	if p.pkg != nil && p.pkg.PackageManager != "" {
 		name, _, _ := strings.Cut(p.pkg.PackageManager, "@")
 		if pm := PM(name); slices.Contains([]PM{NPM, PNPM, Yarn, Bun}, pm) {
@@ -188,7 +301,7 @@ func (p *Project) detectPM(root *Project) {
 			}
 		}
 	}
-	for _, dir := range []*Project{p, root} {
+	for _, dir := range []*Project{p, lockRoot} {
 		if dir == nil {
 			continue
 		}
@@ -216,7 +329,7 @@ func (p *Project) detectPM(root *Project) {
 			}
 		}
 	}
-	if p.PM == Yarn && p.yarnBerry(root) {
+	if p.PM == Yarn && p.yarnBerry(lockRoot) {
 		p.PM = YarnBerry
 	}
 	if p.PM == "" {
