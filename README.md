@@ -2,6 +2,8 @@
 
 **Reclaim the disk space Node.js leaves behind: safely, and the official way.**
 
+**Website:** [matthew-eucaristo.github.io/nodekill](https://matthew-eucaristo.github.io/nodekill/), with a clickable demo fed by `nodekill scan --json` on the demo workspace.
+
 nodekill finds every `node_modules`, framework cache and build folder under your projects, plus the machine-wide Node footprint: package-manager caches and stores, `npx` downloads, global packages and old Node versions. It shows how much each one really frees, explains why it is safe or not, and removes what you pick. Folders go to the Trash. Caches, global packages and Node versions are removed only by their own tool (`npm cache clean`, `pnpm store prune`, `npm uninstall -g`, `nvm uninstall`, …).
 
 It is a single Go binary for macOS (first-class), Linux and Windows (best effort). It needs no Node.js of its own, and it never contacts the network itself.

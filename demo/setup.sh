@@ -7,14 +7,22 @@
 # holds nothing from the real machine.
 # Usage: source demo/setup.sh   (from the repository root)
 # Remove: hdiutil detach /tmp/nodekill-demo/home (macOS); rm -rf /tmp/nodekill-demo
+# site/build.sh runs it as NODEKILL_DEMO_DIR=<new empty dir> bash demo/setup.sh:
+# the same workspace in that folder, no disk image, and instead of the shell
+# it writes the self-checked scan to <dir>/scan.json.
 set -e
 
-DEMO="$(cd /tmp && pwd -P)/nodekill-demo"
-[ -d "$DEMO/home" ] && command -v hdiutil >/dev/null && hdiutil detach -quiet "$DEMO/home" 2>/dev/null
-[ -d "$DEMO" ] && chmod -R u+w "$DEMO" && rm -rf "$DEMO"
+if [ -n "${NODEKILL_DEMO_DIR:-}" ]; then
+  DEMO="$(cd "$NODEKILL_DEMO_DIR" && pwd -P)"
+  [ -z "$(ls -A "$DEMO")" ] || { echo "demo setup: $DEMO is not empty" >&2; exit 1; }
+else
+  DEMO="$(cd /tmp && pwd -P)/nodekill-demo"
+  [ -d "$DEMO/home" ] && command -v hdiutil >/dev/null && hdiutil detach -quiet "$DEMO/home" 2>/dev/null
+  [ -d "$DEMO" ] && chmod -R u+w "$DEMO" && rm -rf "$DEMO"
+fi
 mkdir -p "$DEMO/bin" "$DEMO/home"
 go build -trimpath -o "$DEMO/bin/nodekill" .
-if command -v hdiutil >/dev/null; then
+if [ -z "${NODEKILL_DEMO_DIR:-}" ] && command -v hdiutil >/dev/null; then
   hdiutil create -quiet -size 4g -fs APFS -volname demo -type SPARSE "$DEMO/home.sparseimage"
   hdiutil attach -quiet -nobrowse -mountpoint "$DEMO/home" "$DEMO/home.sparseimage"
 fi
@@ -144,7 +152,8 @@ chmod +x "$DEMO/bin/"*
 # Self-checks: every path nodekill reports lies in the demo HOME, and
 # nothing is live. Liveness reads this machine's process table, so a package
 # manager running here would show up in the recording.
-ENV=(HOME="$H" PATH="$DEMO/bin:/usr/bin:/bin:/usr/sbin" TERM="${TERM:-xterm-256color}" LANG=en_US.UTF-8 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
+# N_PREFIX keeps n's default /usr/local (where CI runners keep their Node) out of it.
+ENV=(HOME="$H" PATH="$DEMO/bin:/usr/bin:/bin:/usr/sbin" N_PREFIX="$H/.n" TERM="${TERM:-xterm-256color}" LANG=en_US.UTF-8 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 SCAN=$(env -i "${ENV[@]}" "$DEMO/bin/nodekill" scan --json "$H/dev")
 if grep -E '"path": "/' <<< "$SCAN"; then
   echo "demo setup: nodekill reports a path outside the demo; not recording" >&2
@@ -153,6 +162,10 @@ fi
 if grep -E '"level": "live"' <<< "$SCAN" >/dev/null; then
   echo "demo setup: a package manager or dev server is running on this machine; stop it and record again" >&2
   return 1 2>/dev/null || exit 1
+fi
+if [ -n "${NODEKILL_DEMO_DIR:-}" ]; then
+  printf '%s\n' "$SCAN" > "$DEMO/scan.json"
+  return 0 2>/dev/null || exit 0
 fi
 cd "$H"
 set +e
