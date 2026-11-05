@@ -8,6 +8,7 @@ TUI/CLI that reclaims disk space from the Node.js footprint: project artifacts (
 - `internal/clean`: the only code that removes anything. `Act` = refresh, fingerprint check, level check, `guard.go`, then trash/delete or the official command; statfs before/after.
 - `internal/contract`: JSON contract (schema_version 1), `docs/contract.md`. `internal/report`: text and receipt. `internal/ui`: Bubble Tea model/view. `internal/testfix`: temp projects and repos for tests.
 - `docs/rules.md`: sources for every catalog entry and command. `packaging/homebrew/nodekill.rb`: tap formula template; `RELEASING.md`.
+- `site/`: the GitHub Pages site (static HTML/CSS/JS, no third-party requests). `site/build.sh` runs `NODEKILL_DEMO_DIR=<tmp> bash demo/setup.sh` (no disk image, no shell; writes the self-checked `scan --json`) and turns it into `sample.js` (stand-in tool paths reduced to their names; fails if any build-machine path remains), so `app.js`, a replica of `internal/ui`, shows real output in `--dry-run` mode. Keep `app.js` in step when the TUI changes visibly. `.github/workflows/pages.yml` deploys on pushes to `main` that touch the site, demo or Go code, and on releases. The build only scans; never add `apply` or `--yes` to it.
 
 ## Invariants
 - Project items match only at their catalog position next to the marker that proves the tool (`Rule.When`), never by name. Generic outputs (`dist`, `build`, `out`, `coverage`, `storybook-static`) are review at best and protected outside git. Remotion `out` is protected.

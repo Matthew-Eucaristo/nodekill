@@ -18,6 +18,10 @@ To try the TUI on a synthetic machine, run `source demo/setup.sh`, then `nodekil
 
 Tests build throwaway projects and git repositories in temp dirs (`internal/testfix`) and swap the trash for a temp folder. Never test removal against real directories; use `--dry-run`, `--list` or `scan --json` there.
 
+## Website
+
+`site/` is the GitHub Pages site: plain HTML, CSS and JS. Preview it with `site/build.sh /tmp/site/nodekill && python3 -m http.server -d /tmp/site 8000`, then open http://localhost:8000/nodekill/. The build needs Go: it runs `demo/setup.sh` in a temp folder and keeps its read-only `scan --json` as `sample.js`, so the page's replica shows real output. It uses ffmpeg for the recording when installed, and deploys from `main` through `.github/workflows/pages.yml`.
+
 ## Ground rules
 
 - **The official way only.** A cache, global package or Node version is removed by its own tool's command. When a tool has no command, only plain download caches may move to the Trash. When the tool is missing, show the command and leave the item alone.
